@@ -1,0 +1,181 @@
+{
+  "name": "MVT Offer Library — Email to Library",
+  "flow": [
+    {
+      "id": 1,
+      "module": "mailhook:ReceiveMail",
+      "version": 1,
+      "metadata": {
+        "designer": { "x": 0, "y": 0 },
+        "restore": {},
+        "expect": [
+          { "name": "hookName", "type": "text", "label": "Mailhook name" }
+        ]
+      },
+      "parameters": {
+        "hookName": "MVT Offer Library Inbox"
+      }
+    },
+    {
+      "id": 2,
+      "module": "builtin:BasicAggregator",
+      "version": 1,
+      "metadata": {
+        "designer": { "x": 300, "y": 0 }
+      },
+      "parameters": {
+        "feeder": 1
+      },
+      "mapper": {
+        "value": "{{1.attachments}}"
+      }
+    },
+    {
+      "id": 3,
+      "module": "builtin:BasicRouter",
+      "version": 1,
+      "metadata": {
+        "designer": { "x": 600, "y": 0 }
+      },
+      "routes": [
+        {
+          "name": "If has attachments",
+          "filter": {
+            "name": "Has at least one attachment",
+            "conditions": [[{ "a": "{{length(1.attachments)}}", "b": "0", "o": "number:greater" }]]
+          },
+          "modules": [
+            {
+              "id": 4,
+              "module": "builtin:Iterator",
+              "metadata": { "designer": { "x": 900, "y": -150 } },
+              "mapper": { "array": "{{1.attachments}}" }
+            },
+            {
+              "id": 5,
+              "module": "hubspot:UploadFile",
+              "metadata": { "designer": { "x": 1200, "y": -150 } },
+              "mapper": {
+                "fileName": "{{4.fileName}}",
+                "fileData": "{{4.data}}",
+                "folderPath": "/Offer Attachments",
+                "access": "PUBLIC_INDEXABLE"
+              }
+            },
+            {
+              "id": 6,
+              "module": "builtin:ArrayAggregator",
+              "metadata": { "designer": { "x": 1500, "y": -150 } },
+              "mapper": {
+                "feeder": 4,
+                "value": "{{5.url}}"
+              }
+            }
+          ]
+        },
+        {
+          "name": "If no attachments — pass through with empty array",
+          "filter": {
+            "name": "No attachments",
+            "conditions": [[{ "a": "{{length(1.attachments)}}", "b": "0", "o": "number:equal" }]]
+          },
+          "modules": [
+            {
+              "id": 7,
+              "module": "util:SetVariable",
+              "metadata": { "designer": { "x": 900, "y": 150 } },
+              "mapper": {
+                "name": "attachmentUrls",
+                "scope": "roundtrip",
+                "value": "[]"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "module": "anthropic-claude:CreateMessage",
+      "version": 1,
+      "metadata": { "designer": { "x": 1800, "y": 0 } },
+      "parameters": {
+        "__IMTCONN__": "Replace with your Anthropic connection"
+      },
+      "mapper": {
+        "model": "claude-sonnet-4-20250514",
+        "max_tokens": 4000,
+        "system": "PASTE THE FULL CONTENTS OF claude_prompt.txt HERE",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Email Subject: {{1.subject}}\nEmail From: {{1.fromAddress}}\nEmail Body:\n{{1.text}}\n\nAttachment URLs (already uploaded to public storage):\n{{join(get(6, \"array\"); \"\\n\")}}"
+          }
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "module": "json:ParseJSON",
+      "version": 1,
+      "metadata": { "designer": { "x": 2100, "y": 0 } },
+      "mapper": {
+        "json": "{{8.content[].text}}"
+      }
+    },
+    {
+      "id": 10,
+      "module": "http:ActionSendData",
+      "version": 3,
+      "metadata": { "designer": { "x": 2400, "y": 0 } },
+      "parameters": {
+        "handleErrors": true
+      },
+      "mapper": {
+        "url": "https://mvt-offers.vercel.app/api/ingest",
+        "method": "POST",
+        "headers": [
+          { "name": "Content-Type", "value": "application/json" }
+        ],
+        "body": "{\n  \"secret\": \"REPLACE_WITH_YOUR_INGEST_SECRET\",\n  \"sender_email\": \"{{1.fromAddress}}\",\n  \"subject\": \"{{1.subject}}\",\n  \"body\": \"{{1.text}}\",\n  \"attachment_urls\": {{ifempty(get(6, \"array\"); \"[]\")}},\n  \"offers\": {{9}}\n}",
+        "parseResponse": true
+      }
+    },
+    {
+      "id": 11,
+      "module": "builtin:Filter",
+      "version": 1,
+      "metadata": { "designer": { "x": 2700, "y": 0 } },
+      "filter": {
+        "name": "Only notify when something needs review",
+        "conditions": [[{ "a": "{{10.data.needs_review}}", "b": "true", "o": "text:equal" }]]
+      }
+    },
+    {
+      "id": 12,
+      "module": "email:ActionSendEmail",
+      "version": 1,
+      "metadata": { "designer": { "x": 3000, "y": 0 } },
+      "mapper": {
+        "to": ["REPLACE_WITH_YOUR_EMAIL"],
+        "subject": "MVT Offer Library — review needed for {{1.fromAddress}}",
+        "html": "<p>An offer was received that needs your review:</p><p><strong>From:</strong> {{1.fromAddress}}<br/><strong>Subject:</strong> {{1.subject}}</p><p><a href=\"https://mvt-offers.vercel.app/admin\">Open admin dashboard →</a></p>"
+      }
+    }
+  ],
+  "metadata": {
+    "instant": false,
+    "version": 1,
+    "scenario": {
+      "roundtrips": 1,
+      "maxErrors": 3,
+      "autoCommit": true,
+      "autoCommitTriggerLast": true,
+      "sequential": false,
+      "confidential": false,
+      "dataloss": false,
+      "dlq": false,
+      "freshVariables": false
+    }
+  }
+}
