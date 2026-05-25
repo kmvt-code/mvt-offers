@@ -1,14 +1,25 @@
 import { supabasePublic } from '../lib/supabase';
 import OfferList from '../components/OfferList';
+import LastUpdated from '../components/LastUpdated';
 
 export const revalidate = 60;
 
 export default async function HomePage() {
   const { data: offers } = await supabasePublic
     .from('offers')
-    .select('id, vendor, supplier_type, audience, offer_overview, offer_start_date, offer_end_date, travel_start_window, travel_end_window, attachment_urls')
+    .select('id, vendor, supplier_type, audience, offer_overview, offer_start_date, offer_end_date, travel_start_window, travel_end_window, attachment_urls, pinned, tags, updated_at')
     .eq('status', 'published')
+    .order('pinned', { ascending: false })
     .order('created_at', { ascending: false });
+
+  // Find the most recent updated_at across all published offers
+  let lastUpdated = null;
+  if (offers && offers.length > 0) {
+    lastUpdated = offers.reduce((latest, o) => {
+      if (!o.updated_at) return latest;
+      return !latest || o.updated_at > latest ? o.updated_at : latest;
+    }, null);
+  }
 
   return (
     <>
@@ -21,6 +32,7 @@ export default async function HomePage() {
               <div className="site-brand-sub">Montecito Village Travel</div>
             </div>
           </a>
+          {lastUpdated && <LastUpdated timestamp={lastUpdated} />}
         </div>
       </header>
 
