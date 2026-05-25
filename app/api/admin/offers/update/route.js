@@ -38,6 +38,12 @@ function isDisallowedInternalContact(contactString) {
   return INTERNAL_DOMAINS.includes(domain);
 }
 
+function parseTags(input) {
+  if (!input) return null;
+  if (Array.isArray(input)) return input.map(t => String(t).trim()).filter(Boolean);
+  return String(input).split(',').map(t => t.trim()).filter(Boolean);
+}
+
 export async function POST(req) {
   if (!isAuthed()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -53,6 +59,12 @@ export async function POST(req) {
       'offer_details', 'client_facing_content', 'contact', 'offer_overview', 'full_details'];
     for (const k of allowed) {
       if (k in fields) update[k] = fields[k] || null;
+    }
+    if ('pinned' in fields) update.pinned = !!fields.pinned;
+    if ('tags' in fields) update.tags = parseTags(fields.tags);
+    if ('attachment_urls' in fields) {
+      const urls = Array.isArray(fields.attachment_urls) ? fields.attachment_urls.filter(u => u && String(u).trim()) : null;
+      update.attachment_urls = urls && urls.length ? urls : null;
     }
   }
 
@@ -70,9 +82,6 @@ export async function POST(req) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Refresh vendor memory ONLY if the contact is valid for memory:
-  // - Offer published, has vendor and contact
-  // - Contact is NOT a disallowed internal address
   if (
     updated.status === 'published'
     && updated.vendor
