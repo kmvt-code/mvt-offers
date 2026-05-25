@@ -1,30 +1,52 @@
-import { cookies } from 'next/headers';
-import { redirect } from 'next/navigation';
-import crypto from 'crypto';
-import { supabaseAdmin } from '../../lib/supabase';
-import AdminDashboard from '../../components/AdminDashboard';
+import { supabasePublic } from '../lib/supabase';
+import OfferList from '../components/OfferList';
+import LastUpdated from '../components/LastUpdated';
 
-function isAuthed() {
-  const c = cookies().get('mvt_admin_session');
-  if (!c) return false;
-  const parts = c.value.split(':');
-  if (parts.length !== 3) return false;
-  const [valid, expires, sig] = parts;
-  const secret = process.env.ADMIN_SESSION_SECRET;
-  const expected = crypto.createHmac('sha256', secret).update(`${valid}:${expires}`).digest('hex');
-  if (sig !== expected) return false;
-  if (parseInt(expires, 10) < Date.now()) return false;
-  return valid === 'valid';
-}
+export const revalidate = 60;
 
-export default async function AdminPage() {
-  if (!isAuthed()) redirect('/admin/login');
+export default async function HomePage() {
+  const { data: offers } = await supabasePublic
+    .from('offers')
+    .select('id, vendor, supplier_type, audience, offer_overview, offer_start_date, offer_end_date, travel_start_window, travel_end_window, attachment_urls, pinned, tags, updated_at')
+    .eq('status', 'published')
+    .order('pinned', { ascending: false })
+    .order('created_at', { ascending: false });
 
-  const [{ data: pending }, { data: published }, { data: vendors }] = await Promise.all([
-    supabaseAdmin.from('offers').select('*').eq('status', 'pending_review').order('created_at', { ascending: false }),
-    supabaseAdmin.from('offers').select('*').eq('status', 'published').order('created_at', { ascending: false }).limit(50),
-    supabaseAdmin.from('vendor_contacts').select('*').order('vendor_display', { ascending: true })
-  ]);
+  // Find the most recent updated_at across all published offers
+  let lastUpdated = null;
+  if (offers && offers.length > 0) {
+    lastUpdated = offers.reduce((latest, o) => {
+      if (!o.updated_at) return latest;
+      return !latest || o.updated_at > latest ? o.updated_at : latest;
+    }, null);
+  }
 
-  return <AdminDashboard pending={pending || []} published={published || []} vendors={vendors || []} />;
+  return (
+    <>
+      <header className="site-header">
+        <div className="container site-header-inner">
+          <a href="/" className="site-brand">
+            <div className="site-brand-mark">M</div>
+            <div>
+              <div className="site-brand-title">Offer Library</div>
+              <div className="site-brand-sub">Montecito Village Travel</div>
+            </div>
+          </a>
+          {lastUpdated && <LastUpdated timestamp={lastUpdated} />}
+        </div>
+      </header>
+
+      <main className="main">
+        <div className="container">
+          <OfferList offers={offers || []} />
+        </div>
+      </main>
+
+      <footer className="footer">
+        <div className="container">
+          MVT Offer Library · Internal use only · Updated automatically from offers@
+        </div>
+      </footer>
+    </>
+  );
 }
