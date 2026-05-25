@@ -3,12 +3,18 @@
 import { useState, useMemo } from 'react';
 
 const SUPPLIER_TYPES = ['Cruise', 'River Cruise', 'Tour', 'Hotel', 'Air', 'Wholesaler', 'Package', 'Train'];
-const AUDIENCES = ['Client', 'Advisor', 'Client and Advisor'];
 
 export default function OfferList({ offers }) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [audienceFilter, setAudienceFilter] = useState('all');
+  const [tagFilter, setTagFilter] = useState('all');
+
+  const allTags = useMemo(() => {
+    const set = new Set();
+    offers.forEach(o => (o.tags || []).forEach(t => set.add(t)));
+    return Array.from(set).sort();
+  }, [offers]);
 
   const filtered = useMemo(() => {
     return offers.filter(o => {
@@ -18,14 +24,17 @@ export default function OfferList({ offers }) {
         if (audienceFilter === 'Advisor' && !a.includes('advisor')) return false;
         if (audienceFilter === 'Client' && !a.includes('client')) return false;
       }
+      if (tagFilter !== 'all') {
+        if (!o.tags || !o.tags.includes(tagFilter)) return false;
+      }
       if (search) {
         const t = search.toLowerCase();
-        const blob = `${o.vendor || ''} ${o.offer_overview || ''} ${o.supplier_type || ''}`.toLowerCase();
+        const blob = `${o.vendor || ''} ${o.offer_overview || ''} ${o.supplier_type || ''} ${(o.tags || []).join(' ')}`.toLowerCase();
         if (!blob.includes(t)) return false;
       }
       return true;
     });
-  }, [offers, search, typeFilter, audienceFilter]);
+  }, [offers, search, typeFilter, audienceFilter, tagFilter]);
 
   return (
     <>
@@ -58,6 +67,16 @@ export default function OfferList({ offers }) {
         <button className={`filter-chip ${audienceFilter === 'Client' ? 'active' : ''}`} onClick={() => setAudienceFilter('Client')}>Client</button>
       </div>
 
+      {allTags.length > 0 && (
+        <div className="filter-section">
+          <span className="filter-label">Tags</span>
+          <button className={`filter-chip ${tagFilter === 'all' ? 'active' : ''}`} onClick={() => setTagFilter('all')}>All</button>
+          {allTags.map(t => (
+            <button key={t} className={`filter-chip ${tagFilter === t ? 'active' : ''}`} onClick={() => setTagFilter(t)}>#{t}</button>
+          ))}
+        </div>
+      )}
+
       <div style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
         {filtered.length} offer{filtered.length === 1 ? '' : 's'}
       </div>
@@ -75,8 +94,11 @@ export default function OfferList({ offers }) {
 
 function OfferCard({ offer }) {
   return (
-    <a href={`/offer/${offer.id}`} className="offer-card">
-      <h3 className="offer-card-vendor">{offer.vendor || 'Unnamed offer'}</h3>
+    <a href={`/offer/${offer.id}`} className={`offer-card ${offer.pinned ? 'pinned' : ''}`}>
+      <h3 className="offer-card-vendor">
+        {offer.pinned && <span className="featured-badge">Featured</span>}
+        {offer.vendor || 'Unnamed offer'}
+      </h3>
       {offer.offer_overview && <p className="offer-card-overview">{offer.offer_overview}</p>}
       <div className="offer-tags" style={{ marginTop: 'auto' }}>
         {offer.supplier_type && <span className="tag tag-type">{offer.supplier_type}</span>}
@@ -85,6 +107,7 @@ function OfferCard({ offer }) {
         {offer.attachment_urls?.length > 0 && (
           <span className="tag tag-attachment">📎 {offer.attachment_urls.length} file{offer.attachment_urls.length === 1 ? '' : 's'}</span>
         )}
+        {offer.tags?.map(t => <span key={t} className="tag tag-custom">#{t}</span>)}
       </div>
     </a>
   );
