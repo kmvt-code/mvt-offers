@@ -31,12 +31,16 @@ export default async function OfferDetail({ params }) {
         <div className="container">
           <div className="offer-detail">
             <a href="/" className="offer-detail-back">← Back to library</a>
-            <h1>{offer.vendor || 'Unnamed offer'}</h1>
+            <h1>
+              {offer.pinned && <span className="featured-badge">Featured</span>}
+              {offer.vendor || 'Unnamed offer'}
+            </h1>
 
             <div className="offer-detail-tags">
               {offer.supplier_type && <span className="tag tag-type">{offer.supplier_type}</span>}
               {offer.audience && <span className="tag tag-audience">{offer.audience}</span>}
               {offer.offer_end_date && <span className="tag tag-date">Through {formatDate(offer.offer_end_date)}</span>}
+              {offer.tags?.map(t => <span key={t} className="tag tag-custom">#{t}</span>)}
             </div>
 
             {offer.offer_overview && <p className="offer-detail-overview">{offer.offer_overview}</p>}
