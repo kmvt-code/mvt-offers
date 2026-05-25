@@ -181,3 +181,127 @@ a { color: inherit; text-decoration: none; }
 .vendor-row-contact { flex: 1; font-size: 13px; color: var(--text-muted); }
 .vendor-row-edit { flex: 1; padding: 7px 11px; border: 1px solid var(--gold); border-radius: 7px; font-size: 13px; font-family: inherit; }
 .vendor-row-edit:focus { outline: none; }
+/* === APPEND THESE STYLES TO THE END OF app/globals.css === */
+
+/* Custom tags (used on cards and in admin) */
+.tag-custom {
+  background: rgba(15, 30, 53, 0.06);
+  color: var(--navy-mid);
+  font-weight: 500;
+}
+
+/* Featured / pinned offer badge */
+.featured-badge {
+  display: inline-block;
+  background: var(--gold);
+  color: var(--navy);
+  font-family: 'DM Sans', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  margin-right: 8px;
+  vertical-align: middle;
+}
+
+.offer-card.pinned {
+  border-color: var(--gold);
+  background: linear-gradient(to bottom, rgba(201, 168, 76, 0.04), white 60%);
+}
+
+/* Bulk action bar */
+.bulk-bar {
+  background: var(--navy);
+  color: white;
+  padding: 12px 18px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+  box-shadow: 0 2px 12px rgba(15, 30, 53, 0.15);
+}
+
+.bulk-bar strong {
+  color: var(--gold-light);
+}
+
+.bulk-bar .btn {
+  font-size: 12px;
+  padding: 6px 12px;
+}
+
+/* Attachment row in edit form */
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--cream);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  margin-bottom: 6px;
+}
+
+.attachment-row a {
+  border-bottom: 1px solid var(--gold);
+}
+
+.attachment-row .btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  flex-shrink: 0;
+}
+
+/* Form field hint text */
+.form-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  font-style: italic;
+}
+
+/* Last updated indicator in header */
+.last-updated {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  cursor: help;
+}
+
+.last-updated-dot {
+  width: 7px;
+  height: 7px;
+  background: #4ade80;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(74, 222, 128, 0.6);
+  animation: pulse 2.5s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.last-updated-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.last-updated-time {
+  color: var(--gold-light);
+  font-weight: 500;
+  font-size: 12px;
+}
+
+@media (max-width: 600px) {
+  .last-updated-label { display: none; }
+}
