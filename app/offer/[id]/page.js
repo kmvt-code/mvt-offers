@@ -3,6 +3,24 @@ import { notFound } from 'next/navigation';
 
 export const revalidate = 60;
 
+const LINK_FIELDS = [
+  { key: 'voyage_list', label: 'Voyage list' },
+  { key: 'offer_details', label: 'Offer details' },
+  { key: 'client_facing_content', label: 'Client facing content' }
+];
+
+function isUrl(v) {
+  return typeof v === 'string' && /^https?:\/\//i.test(v.trim());
+}
+
+function fileLabel(url) {
+  const clean = url.split('?')[0].toLowerCase();
+  if (clean.endsWith('.pdf')) return 'PDF attachment';
+  if (clean.endsWith('.doc') || clean.endsWith('.docx')) return 'Word document';
+  if (clean.endsWith('.xls') || clean.endsWith('.xlsx')) return 'Excel file';
+  return 'Attachment';
+}
+
 export default async function OfferDetail({ params }) {
   const { data: offer } = await supabasePublic
     .from('offers')
@@ -12,6 +30,19 @@ export default async function OfferDetail({ params }) {
     .single();
 
   if (!offer) notFound();
+
+  const files = (offer.attachment_urls || []).filter(Boolean);
+  const fileResources = files.map((url, i) => ({
+    kind: 'file',
+    label: files.length > 1 ? `${fileLabel(url)} (${i + 1})` : fileLabel(url),
+    url
+  }));
+
+  const linkResources = LINK_FIELDS
+    .filter(f => isUrl(offer[f.key]))
+    .map(f => ({ kind: 'link', label: f.label, url: offer[f.key].trim() }));
+
+  const resources = [...fileResources, ...linkResources];
 
   return (
     <>
@@ -56,12 +87,17 @@ export default async function OfferDetail({ params }) {
               <Field label="Client Facing Content" value={offer.client_facing_content} link />
               <Field label="Contact" value={offer.contact} />
               <Field label="Full Details" value={offer.full_details} multiline />
-              {offer.attachment_urls?.length > 0 && (
+
+              {resources.length > 0 && (
                 <>
-                  <div className="offer-field-label">Attachments</div>
+                  <div className="offer-field-label">Resources</div>
                   <div className="offer-field-value">
-                    {offer.attachment_urls.map((url, i) => (
-                      <div key={i}><a href={url} target="_blank" rel="noopener noreferrer">📎 View attachment {i + 1}</a></div>
+                    {resources.map((r, i) => (
+                      <div key={i} className="resource-link">
+                        <a href={r.url} target="_blank" rel="noopener noreferrer">
+                          {r.kind === 'file' ? '📎' : '🔗'} {r.label}
+                        </a>
+                      </div>
                     ))}
                   </div>
                 </>
@@ -80,18 +116,12 @@ export default async function OfferDetail({ params }) {
 
 function Field({ label, value, link, multiline }) {
   if (!value) return null;
-  if (link && /^https?:\/\//i.test(value)) {
-    return (
-      <>
-        <div className="offer-field-label">{label}</div>
-        <div className="offer-field-value"><a href={value} target="_blank" rel="noopener noreferrer">{value}</a></div>
-      </>
-    );
-  }
+  // URL valued link fields are surfaced in the Resources section instead of inline
+  if (link && isUrl(value)) return null;
   return (
     <>
       <div className="offer-field-label">{label}</div>
-      <div className="offer-field-value" style={multiline ? { whiteSpace: 'pre-wrap' } : {}}>{value}</div>
+      <div className="offer-field-value" style={multiline ? { whiteSpace: 'pre-wrap' } : undefined}>{value}</div>
     </>
   );
 }
