@@ -104,8 +104,11 @@ function OfferCard({ offer }) {
         {offer.supplier_type && <span className="tag tag-type">{offer.supplier_type}</span>}
         {offer.audience && <span className="tag tag-audience">{offer.audience}</span>}
         {offer.offer_end_date && <span className="tag tag-date">Through {formatDate(offer.offer_end_date)}</span>}
-        {offer.attachment_urls?.length > 0 && (
+ {offer.attachment_urls?.length > 0 && (
           <span className="tag tag-attachment">📎 {offer.attachment_urls.length} file{offer.attachment_urls.length === 1 ? '' : 's'}</span>
+        )}
+        {['voyage_list','offer_details','client_facing_content'].some(k => /^https?:\/\//i.test(offer[k] || '')) && (
+          <span className="tag tag-attachment">🔗 link</span>
         )}
         {offer.tags?.map(t => <span key={t} className="tag tag-custom">#{t}</span>)}
       </div>
