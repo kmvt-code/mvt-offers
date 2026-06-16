@@ -7,7 +7,7 @@ export const revalidate = 60;
 export default async function HomePage() {
   const { data: offers } = await supabasePublic
     .from('offers')
-    .select('id, vendor, supplier_type, audience, offer_overview, offer_start_date, offer_end_date, travel_start_window, travel_end_window, attachment_urls, pinned, tags, updated_at')
+    .select('id, vendor, supplier_type, audience, offer_overview, offer_start_date, offer_end_date, travel_start_window, travel_end_window, attachment_urls, voyage_list, offer_details, client_facing_content, pinned, tags, updated_at')
     .eq('status', 'published')
     .order('pinned', { ascending: false })
     .order('created_at', { ascending: false });
