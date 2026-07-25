@@ -310,6 +310,7 @@ function EditForm({ offer, onCancel, onSaved }) {
   const [attachments, setAttachments] = useState(offer.attachment_urls || []);
   const [newUrl, setNewUrl] = useState('');
   const [saving, setSaving] = useState(false);
+  const [endDateError, setEndDateError] = useState('');
 
   function set(k, v) { setData(d => ({ ...d, [k]: v })); }
 
@@ -324,12 +325,15 @@ function EditForm({ offer, onCancel, onSaved }) {
   }
 
   async function save(publish) {
+    if (publish && !data.offer_end_date) { setEndDateError('Offer end date is required to publish this offer.'); return; }
+    setEndDateError('');
     setSaving(true);
     const fields = { ...data, attachment_urls: attachments };
-    await fetch('/api/admin/offers/update', {
+    const res = await fetch('/api/admin/offers/update', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: offer.id, fields, ...(publish ? { status: 'published' } : {}) })
     });
+    if (!res.ok) { const err = await res.json().catch(() => ({})); setEndDateError(err.error || 'Something went wrong while saving.'); setSaving(false); return; }
     onSaved();
   }
 
@@ -361,6 +365,7 @@ function EditForm({ offer, onCancel, onSaved }) {
                 <input type={f.type || 'text'} value={data[f.key] || ''} onChange={e => set(f.key, e.target.value)} placeholder={f.hint || ''} />
               )}
               {f.hint && <div className="form-hint">{f.hint}</div>}
+               {f.key === 'offer_end_date' && endDateError && <div className="form-error" style={{ color: '#b42318', fontSize: 12, marginTop: 4 }}>{endDateError}</div>}
             </div>
           ))}
         </div>
