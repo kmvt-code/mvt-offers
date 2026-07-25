@@ -69,6 +69,10 @@ export async function POST(req) {
   }
 
   if (status === 'published') {
+      const effectiveEndDate = 'offer_end_date' in update ? update.offer_end_date : (fields ? fields.offer_end_date : null);
+    if (!effectiveEndDate) {
+      return NextResponse.json({ error: 'Offer end date is required to publish this offer.' }, { status: 400 });
+    }
     update.contact_conflict = null;
     update.missing_fields = null;
   }
