@@ -89,13 +89,19 @@ create trigger vendor_contacts_updated_at
 alter table public.offers enable row level security;
 alter table public.vendor_contacts enable row level security;
 
--- Public can read published offers, BUT only within their date window
+-- Public can read published offers, BUT only within their date window.
+-- The window is evaluated in Pacific time, because MVT is Pacific-based and
+-- offer dates are entered as Pacific dates. Postgres current_date is UTC,
+-- which rolls over at 5pm Pacific and used to hide an offer on its last day
+-- for the whole evening.
 create policy "Public can view active published offers"
   on public.offers for select
   using (
     status = 'published'
-    and (offer_start_date is null or offer_start_date <= current_date)
-    and (offer_end_date is null or offer_end_date >= current_date)
+    and (offer_start_date is null
+         or offer_start_date <= (now() at time zone 'America/Los_Angeles')::date)
+    and (offer_end_date is null
+         or offer_end_date >= (now() at time zone 'America/Los_Angeles')::date)
   );
 
 -- vendor_contacts is admin/server only — no public read policy
@@ -137,3 +143,20 @@ create policy "Public can view active published offers"
 -- ============================================================
 -- alter table public.offers add column if not exists pinned boolean default false;
 -- alter table public.offers add column if not exists tags text[];
+
+-- ============================================================
+-- MIGRATION: evaluate the visibility window in Pacific time
+-- Run this ONCE against the live database. It replaces the policy
+-- in place and does not touch any data.
+-- ============================================================
+-- drop policy "Public can view active published offers" on public.offers;
+--
+-- create policy "Public can view active published offers"
+--   on public.offers for select
+--   using (
+--     status = 'published'
+--     and (offer_start_date is null
+--          or offer_start_date <= (now() at time zone 'America/Los_Angeles')::date)
+--     and (offer_end_date is null
+--          or offer_end_date >= (now() at time zone 'America/Los_Angeles')::date)
+--   );
