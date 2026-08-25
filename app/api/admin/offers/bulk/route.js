@@ -1,20 +1,6 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import crypto from 'crypto';
 import { supabaseAdmin } from '../../../../../lib/supabase';
-
-function isAuthed() {
-  const c = cookies().get('mvt_admin_session');
-  if (!c) return false;
-  const parts = c.value.split(':');
-  if (parts.length !== 3) return false;
-  const [valid, expires, sig] = parts;
-  const secret = process.env.ADMIN_SESSION_SECRET;
-  const expected = crypto.createHmac('sha256', secret).update(`${valid}:${expires}`).digest('hex');
-  if (sig !== expected) return false;
-  if (parseInt(expires, 10) < Date.now()) return false;
-  return valid === 'valid';
-}
+import { isAuthed } from '../../../../../lib/auth';
 
 export async function POST(req) {
   if (!isAuthed()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
