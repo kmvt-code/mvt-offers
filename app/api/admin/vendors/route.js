@@ -1,23 +1,9 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import crypto from 'crypto';
 import { supabaseAdmin } from '../../../../lib/supabase';
+import { isAuthed } from '../../../../lib/auth';
 
 const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
 const ALLOWED_INTERNAL_CONTACT = 'marketing@ytc.com';
-
-function isAuthed() {
-  const c = cookies().get('mvt_admin_session');
-  if (!c) return false;
-  const parts = c.value.split(':');
-  if (parts.length !== 3) return false;
-  const [valid, expires, sig] = parts;
-  const secret = process.env.ADMIN_SESSION_SECRET;
-  const expected = crypto.createHmac('sha256', secret).update(`${valid}:${expires}`).digest('hex');
-  if (sig !== expected) return false;
-  if (parseInt(expires, 10) < Date.now()) return false;
-  return valid === 'valid';
-}
 
 function normalizeVendor(v) {
   if (!v) return '';
