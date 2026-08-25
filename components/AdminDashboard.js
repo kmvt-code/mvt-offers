@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { formatDate } from '../lib/dates';
+import { formatDate, todayInPacific } from '../lib/dates';
 
 const FIELDS = [
   { key: 'vendor', label: 'Vendor' },
@@ -87,8 +87,8 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
   const showBulk = selected.size > 0;
   const isPublishedTab = tab === 'live' || tab === 'scheduled' || tab === 'expired';
 
-  // UTC date, matching Postgres current_date used by the public RLS policy.
-  const today = new Date().toISOString().split('T')[0];
+  // Pacific date, matching the public RLS policy on public.offers.
+  const today = todayInPacific();
   const isExpired = o => o.offer_end_date && o.offer_end_date < today;
   const isScheduled = o => o.offer_start_date && o.offer_start_date > today;
 
@@ -220,7 +220,7 @@ function PendingTab({ pending, action, setEditing, publishWithContact, selected,
 
 function PublishedTab({ published, emptyMessage, action, setEditing, togglePin, selected, toggleSelect }) {
   if (published.length === 0) return <div className="empty">{emptyMessage}</div>;
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayInPacific();
   return published.map(o => {
     const notYetVisible = o.offer_start_date && o.offer_start_date > today;
     return (
