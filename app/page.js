@@ -45,6 +45,10 @@ export default async function HomePage() {
       <footer className="footer">
         <div className="container">
           MVT Offer Library · Internal use only · Updated automatically from offers@
+          <div className="footer-note">
+            All dates are shown in Pacific time, the same dates the supplier submitted.
+            They do not shift with your device&rsquo;s location or timezone.
+          </div>
         </div>
       </footer>
     </>
