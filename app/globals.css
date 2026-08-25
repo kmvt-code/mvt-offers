@@ -308,3 +308,98 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 600px) {
   .last-updated-label { display: none; }
 }
+
+/* === View toggle: tiles vs columns (added for the layout switch) === */
+.list-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.list-count { font-size: 13px; color: var(--text-muted); }
+
+.view-toggle {
+  display: inline-flex; background: white;
+  border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+}
+.view-toggle button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 7px 12px; font-size: 13px; font-family: inherit;
+  color: var(--text-muted); background: white; border: none; cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.view-toggle button + button { border-left: 1px solid var(--border); }
+.view-toggle button:hover { color: var(--navy); }
+.view-toggle button.active { background: var(--navy); color: white; }
+
+/* Columns (compact) view */
+.offer-columns-scroll { overflow-x: auto; }
+.offer-columns {
+  min-width: 680px; background: white;
+  border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
+}
+.offer-col-head, .offer-row {
+  display: grid;
+  grid-template-columns: 1.4fr 0.8fr 2fr 1fr 1.2fr;
+  gap: 16px; align-items: center; padding: 12px 18px;
+}
+.offer-col-head {
+  background: var(--cream-dark);
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+.offer-row {
+  border-top: 1px solid var(--border);
+  font-size: 14px; color: var(--text);
+  cursor: pointer; transition: background 0.12s;
+}
+.offer-row:hover { background: rgba(201, 168, 76, 0.06); }
+.offer-row-vendor {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  font-family: 'DM Serif Display', serif; font-size: 16px; color: var(--navy);
+}
+.offer-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.offer-col-muted { font-size: 13px; color: var(--text-muted); }
+.offer-row-tags { gap: 4px; }
+.offer-row-tags .tag { font-size: 10px; }
+
+/* Overview is a summary, not the whole offer: clamp it to two lines. */
+.offer-col-overview {
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  overflow: hidden; line-height: 1.4;
+}
+
+/* Collapsible filters. Hidden control on wide screens, where the chips
+   always show; below the breakpoint the chips collapse behind it. */
+.filters-toggle { display: none; }
+
+@media (max-width: 700px) {
+  .filters-toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-bottom: 16px; padding: 8px 14px;
+    font-size: 13px; font-family: inherit;
+    background: white; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-muted); cursor: pointer;
+  }
+  .filter-groups { display: none; }
+  .filter-groups.open { display: block; }
+
+  /* Narrow columns: vendor, overview and the end date only, no sideways scroll. */
+  .offer-columns { min-width: 0; }
+  .offer-col-head, .offer-row {
+    grid-template-columns: 1.1fr 1.6fr 0.9fr;
+    gap: 12px; padding: 12px 14px;
+  }
+  .offer-col-audience, .offer-col-tags { display: none; }
+  .offer-col-muted { font-size: 12px; }
+
+  /* The Featured badge otherwise eats the whole vendor cell at this width and
+     squeezes the name out of view. Let it wrap onto its own line, and clamp
+     the name to two lines instead of a single ellipsed one. */
+  .offer-row-vendor { font-size: 15px; flex-wrap: wrap; gap: 4px; }
+  .offer-row-vendor .featured-badge { font-size: 9px; }
+  .offer-row-name {
+    flex: 1 1 100%;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+    white-space: normal; overflow-wrap: anywhere; line-height: 1.25;
+  }
+}
+.footer-note { margin-top: 8px; font-size: 11px; color: var(--text-muted); opacity: 0.85; }

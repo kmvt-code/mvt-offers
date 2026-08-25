@@ -1,20 +1,41 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+
+import { formatDate } from '../lib/dates';
 
 const SUPPLIER_TYPES = ['Cruise', 'River Cruise', 'Tour', 'Hotel', 'Air', 'Wholesaler', 'Package', 'Train'];
+const VIEW_STORAGE_KEY = 'mvt_offer_view';
 
 export default function OfferList({ offers }) {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('all');
   const [audienceFilter, setAudienceFilter] = useState('all');
   const [tagFilter, setTagFilter] = useState('all');
+  const [view, setView] = useState('tiles');
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Restore the viewer's saved layout on the client only, so the server
+  // and first client render agree and React does not warn about a mismatch.
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(VIEW_STORAGE_KEY);
+      if (saved === 'tiles' || saved === 'columns') setView(saved);
+    } catch (e) { /* storage unavailable, keep the default */ }
+  }, []);
+
+  function chooseView(next) {
+    setView(next);
+    try { window.localStorage.setItem(VIEW_STORAGE_KEY, next); } catch (e) { /* ignore */ }
+  }
 
   const allTags = useMemo(() => {
     const set = new Set();
     offers.forEach(o => (o.tags || []).forEach(t => set.add(t)));
     return Array.from(set).sort();
   }, [offers]);
+
+  const activeFilters = [typeFilter, audienceFilter, tagFilter].filter(f => f !== 'all').length;
 
   const filtered = useMemo(() => {
     return offers.filter(o => {
@@ -52,6 +73,17 @@ export default function OfferList({ offers }) {
         />
       </div>
 
+      <button
+        type="button"
+        className="filters-toggle"
+        aria-expanded={filtersOpen}
+        onClick={() => setFiltersOpen(open => !open)}
+      >
+        <span aria-hidden="true">{filtersOpen ? '\u25b2' : '\u25bc'}</span>
+        Filters{activeFilters > 0 ? ` (${activeFilters} on)` : ''}
+      </button>
+
+      <div className={`filter-groups ${filtersOpen ? 'open' : ''}`}>
       <div className="filter-section">
         <span className="filter-label">Supplier</span>
         <button className={`filter-chip ${typeFilter === 'all' ? 'active' : ''}`} onClick={() => setTypeFilter('all')}>All</button>
@@ -76,13 +108,47 @@ export default function OfferList({ offers }) {
           ))}
         </div>
       )}
+      </div>
 
-      <div style={{ marginBottom: 14, fontSize: 13, color: 'var(--text-muted)' }}>
-        {filtered.length} offer{filtered.length === 1 ? '' : 's'}
+      <div className="list-toolbar">
+        <span className="list-count">
+          {filtered.length} offer{filtered.length === 1 ? '' : 's'}
+        </span>
+        <div className="view-toggle" role="group" aria-label="Choose layout">
+          <button
+            type="button"
+            className={view === 'tiles' ? 'active' : ''}
+            aria-pressed={view === 'tiles'}
+            onClick={() => chooseView('tiles')}
+          >
+            <span aria-hidden="true">▦</span> Tiles
+          </button>
+          <button
+            type="button"
+            className={view === 'columns' ? 'active' : ''}
+            aria-pressed={view === 'columns'}
+            onClick={() => chooseView('columns')}
+          >
+            <span aria-hidden="true">▤</span> Columns
+          </button>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
         <div className="empty">No offers match your filters</div>
+      ) : view === 'columns' ? (
+        <div className="offer-columns-scroll">
+          <div className="offer-columns">
+            <div className="offer-col-head">
+              <div>Vendor</div>
+              <div className="offer-col-audience">Audience</div>
+              <div className="offer-col-overview">Overview</div>
+              <div className="offer-col-window">Offer ends</div>
+              <div className="offer-col-tags">Tags</div>
+            </div>
+            {filtered.map(o => <OfferRow key={o.id} offer={o} />)}
+          </div>
+        </div>
       ) : (
         <div className="offer-grid">
           {filtered.map(o => <OfferCard key={o.id} offer={o} />)}
@@ -116,9 +182,22 @@ function OfferCard({ offer }) {
   );
 }
 
-function formatDate(d) {
-  try {
-    const dt = new Date(d);
-    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch { return d; }
+function OfferRow({ offer }) {
+  return (
+    <a href={`/offer/${offer.id}`} className="offer-row">
+      <div className="offer-row-vendor">
+        {offer.pinned && <span className="featured-badge">Featured</span>}
+        <span className="offer-row-name">{offer.vendor || 'Unnamed offer'}</span>
+      </div>
+      <div className="offer-col-muted offer-col-audience">{offer.audience || ''}</div>
+      <div className="offer-col-muted offer-col-overview">{offer.offer_overview || ''}</div>
+      <div className="offer-col-muted offer-col-window">{offer.offer_end_date ? `Through ${formatDate(offer.offer_end_date)}` : ''}</div>
+      <div className="offer-tags offer-row-tags offer-col-tags">
+        {(offer.tags || []).slice(0, 3).map(t => <span key={t} className="tag tag-custom">#{t}</span>)}
+        {offer.attachment_urls?.length > 0 && (
+          <span className="tag tag-attachment">📎 {offer.attachment_urls.length}</span>
+        )}
+      </div>
+    </a>
+  );
 }
