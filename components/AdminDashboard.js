@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { formatDate } from '../lib/dates';
 
 const FIELDS = [
   { key: 'vendor', label: 'Vendor' },
@@ -321,9 +322,7 @@ function VendorsTab({ vendors }) {
 }
 
 function fmt(d) {
-  if (!d) return d;
-  try { return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
-  catch { return d; }
+  return formatDate(d);
 }
 
 function EditForm({ offer, onCancel, onSaved }) {
