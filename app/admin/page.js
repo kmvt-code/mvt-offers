@@ -1,22 +1,8 @@
-import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
-import crypto from 'crypto';
 import { supabaseAdmin } from '../../lib/supabase';
 import { todayInPacific } from '../../lib/dates';
 import AdminDashboard from '../../components/AdminDashboard';
-
-function isAuthed() {
-  const c = cookies().get('mvt_admin_session');
-  if (!c) return false;
-  const parts = c.value.split(':');
-  if (parts.length !== 3) return false;
-  const [valid, expires, sig] = parts;
-  const secret = process.env.ADMIN_SESSION_SECRET;
-  const expected = crypto.createHmac('sha256', secret).update(`${valid}:${expires}`).digest('hex');
-  if (sig !== expected) return false;
-  if (parseInt(expires, 10) < Date.now()) return false;
-  return valid === 'valid';
-}
+import { isAuthed } from '../../lib/auth';
 
 // Cap on how many published rows we load into the list at once.
 // The tab badges are fetched separately as exact counts, so they stay
