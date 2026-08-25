@@ -20,7 +20,7 @@ const FIELDS = [
   { key: 'full_details', label: 'Full Details', multiline: true, full: true }
 ];
 
-export default function AdminDashboard({ pending, published, publishedTotal, vendors }) {
+export default function AdminDashboard({ pending, published, liveTotal, scheduledTotal, expiredTotal, vendors }) {
   const [tab, setTab] = useState('pending');
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -84,6 +84,22 @@ export default function AdminDashboard({ pending, published, publishedTotal, ven
   }
 
   const showBulk = selected.size > 0;
+  const isPublishedTab = tab === 'live' || tab === 'scheduled' || tab === 'expired';
+
+  // UTC date, matching Postgres current_date used by the public RLS policy.
+  const today = new Date().toISOString().split('T')[0];
+  const isExpired = o => o.offer_end_date && o.offer_end_date < today;
+  const isScheduled = o => o.offer_start_date && o.offer_start_date > today;
+
+  const liveRows = published.filter(o => !isExpired(o) && !isScheduled(o));
+  const scheduledRows = published.filter(isScheduled);
+  const expiredRows = published.filter(isExpired);
+
+  const publishedTabs = {
+    live: { rows: liveRows, total: liveTotal, empty: 'No offers are live right now.' },
+    scheduled: { rows: scheduledRows, total: scheduledTotal, empty: 'Nothing is scheduled to go live later.' },
+    expired: { rows: expiredRows, total: expiredTotal, empty: 'No published offers have expired.' }
+  };
 
   return (
     <>
@@ -102,8 +118,14 @@ export default function AdminDashboard({ pending, published, publishedTotal, ven
           <span className={`admin-tab ${tab === 'pending' ? 'active' : ''}`} onClick={() => { setTab('pending'); clearSelection(); }}>
             Pending Review ({pending.length})
           </span>
-          <span className={`admin-tab ${tab === 'published' ? 'active' : ''}`} onClick={() => { setTab('published'); clearSelection(); }}>
-            Published ({publishedTotal ?? published.length})
+          <span className={`admin-tab ${tab === 'live' ? 'active' : ''}`} onClick={() => { setTab('live'); clearSelection(); }}>
+            Live ({liveTotal ?? liveRows.length})
+          </span>
+          <span className={`admin-tab ${tab === 'scheduled' ? 'active' : ''}`} onClick={() => { setTab('scheduled'); clearSelection(); }}>
+            Scheduled ({scheduledTotal ?? scheduledRows.length})
+          </span>
+          <span className={`admin-tab ${tab === 'expired' ? 'active' : ''}`} onClick={() => { setTab('expired'); clearSelection(); }}>
+            Expired ({expiredTotal ?? expiredRows.length})
           </span>
           <span className={`admin-tab ${tab === 'vendors' ? 'active' : ''}`} onClick={() => { setTab('vendors'); clearSelection(); }}>
             Vendor Contacts ({vendors.length})
@@ -115,7 +137,7 @@ export default function AdminDashboard({ pending, published, publishedTotal, ven
           <div className="bulk-bar">
             <span><strong>{selected.size}</strong> selected</span>
             {tab === 'pending' && <button className="btn btn-approve" onClick={() => bulkAction('publish')}>Publish all</button>}
-            {tab === 'published' && (
+            {isPublishedTab && (
               <>
                 <button className="btn btn-edit" onClick={() => bulkAction('pin')}>Pin all</button>
                 <button className="btn btn-edit" onClick={() => bulkAction('unpin')}>Unpin all</button>
@@ -129,7 +151,7 @@ export default function AdminDashboard({ pending, published, publishedTotal, ven
         )}
 
         {tab === 'pending' && <PendingTab pending={pending} action={action} setEditing={setEditing} publishWithContact={publishWithContact} selected={selected} toggleSelect={toggleSelect} />}
-        {tab === 'published' && <PublishedTab published={published} action={action} setEditing={setEditing} togglePin={togglePin} selected={selected} toggleSelect={toggleSelect} />}
+        {isPublishedTab && <PublishedTab published={publishedTabs[tab].rows} emptyMessage={publishedTabs[tab].empty} action={action} setEditing={setEditing} togglePin={togglePin} selected={selected} toggleSelect={toggleSelect} />}
         {tab === 'vendors' && <VendorsTab vendors={vendors} />}
       </main>
     </>
@@ -195,8 +217,8 @@ function PendingTab({ pending, action, setEditing, publishWithContact, selected,
   ));
 }
 
-function PublishedTab({ published, action, setEditing, togglePin, selected, toggleSelect }) {
-  if (published.length === 0) return <div className="empty">No published offers yet.</div>;
+function PublishedTab({ published, emptyMessage, action, setEditing, togglePin, selected, toggleSelect }) {
+  if (published.length === 0) return <div className="empty">{emptyMessage}</div>;
   const today = new Date().toISOString().split('T')[0];
   return published.map(o => {
     const notYetVisible = o.offer_start_date && o.offer_start_date > today;
