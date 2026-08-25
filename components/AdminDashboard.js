@@ -20,7 +20,7 @@ const FIELDS = [
   { key: 'full_details', label: 'Full Details', multiline: true, full: true }
 ];
 
-export default function AdminDashboard({ pending, published, vendors }) {
+export default function AdminDashboard({ pending, published, publishedTotal, vendors }) {
   const [tab, setTab] = useState('pending');
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -103,7 +103,7 @@ export default function AdminDashboard({ pending, published, vendors }) {
             Pending Review ({pending.length})
           </span>
           <span className={`admin-tab ${tab === 'published' ? 'active' : ''}`} onClick={() => { setTab('published'); clearSelection(); }}>
-            Published ({published.length})
+            Published ({publishedTotal ?? published.length})
           </span>
           <span className={`admin-tab ${tab === 'vendors' ? 'active' : ''}`} onClick={() => { setTab('vendors'); clearSelection(); }}>
             Vendor Contacts ({vendors.length})

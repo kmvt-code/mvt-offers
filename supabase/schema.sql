@@ -41,7 +41,11 @@ create table public.offers (
   attachment_urls text[],
   original_subject text,
   original_body text,
-  raw_extraction jsonb
+  raw_extraction jsonb,
+
+  -- Added after the v2 schema. These already exist in the live database.
+  pinned boolean default false,
+  tags text[]
 );
 
 create index offers_status_idx on public.offers(status);
@@ -125,3 +129,11 @@ create policy "Public can view active published offers"
 -- create trigger vendor_contacts_updated_at
 --   before update on public.vendor_contacts
 --   for each row execute function update_updated_at();
+
+-- ============================================================
+-- MIGRATION: pinned + tags (only if your live DB predates them)
+-- The MVT live database ALREADY has these. Do not run against it.
+-- Kept here so a fresh rebuild from this file matches production.
+-- ============================================================
+-- alter table public.offers add column if not exists pinned boolean default false;
+-- alter table public.offers add column if not exists tags text[];
