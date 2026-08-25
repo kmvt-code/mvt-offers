@@ -1,5 +1,6 @@
 import { supabasePublic } from '../../../lib/supabase';
 import { notFound } from 'next/navigation';
+import { formatDate } from '../../../lib/dates';
 
 export const revalidate = 60;
 
@@ -131,12 +132,4 @@ function range(a, b, fmt) {
   const f = fmt || (x => x);
   if (a && b) return `${f(a)} – ${f(b)}`;
   return f(a || b);
-}
-
-function formatDate(d) {
-  if (!d) return d;
-  try {
-    const dt = new Date(d);
-    return dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch { return d; }
 }
