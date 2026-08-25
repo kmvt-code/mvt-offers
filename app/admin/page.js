@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import crypto from 'crypto';
 import { supabaseAdmin } from '../../lib/supabase';
+import { todayInPacific } from '../../lib/dates';
 import AdminDashboard from '../../components/AdminDashboard';
 
 function isAuthed() {
@@ -25,8 +26,8 @@ const PUBLISHED_LIST_LIMIT = 500;
 export default async function AdminPage() {
   if (!isAuthed()) redirect('/admin/login');
 
-  // UTC date, matching Postgres current_date used by the public RLS policy.
-  const today = new Date().toISOString().split('T')[0];
+  // Pacific date, matching the public RLS policy on public.offers.
+  const today = todayInPacific();
 
   const published = () => supabaseAdmin.from('offers').select('id', { count: 'exact', head: true }).eq('status', 'published');
 
