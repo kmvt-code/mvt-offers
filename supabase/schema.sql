@@ -45,7 +45,13 @@ create table public.offers (
 
   -- Added after the v2 schema. These already exist in the live database.
   pinned boolean default false,
-  tags text[]
+  tags text[],
+
+  -- Duplicate detection. When an incoming offer looks like one already in the
+  -- library it is held in pending_review with the match recorded, never acted
+  -- on automatically.
+  duplicate_of uuid references public.offers(id) on delete set null,
+  duplicate_match jsonb
 );
 
 create index offers_status_idx on public.offers(status);
@@ -160,3 +166,14 @@ create policy "Public can view active published offers"
 --     and (offer_end_date is null
 --          or offer_end_date >= (now() at time zone 'America/Los_Angeles')::date)
 --   );
+
+-- ============================================================
+-- MIGRATION: duplicate detection columns
+-- Run this BEFORE deploying the duplicate detection change.
+-- Adds two nullable columns and touches no existing data.
+-- ============================================================
+-- alter table public.offers
+--   add column if not exists duplicate_of uuid references public.offers(id) on delete set null,
+--   add column if not exists duplicate_match jsonb;
+--
+-- create index if not exists offers_duplicate_of_idx on public.offers(duplicate_of);

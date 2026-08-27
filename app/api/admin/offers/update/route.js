@@ -39,6 +39,12 @@ export async function POST(req) {
 
   const update = {};
   if (status) update.status = status;
+  // Publishing or rejecting settles any duplicate question, so the flag goes
+  // with it. Otherwise a resolved offer keeps a stale "possible duplicate".
+  if (status === 'published' || status === 'rejected') {
+    update.duplicate_of = null;
+    update.duplicate_match = null;
+  }
   if (fields) {
     const allowed = ['vendor', 'supplier_type', 'audience', 'offer_start_date', 'offer_end_date',
       'travel_start_window', 'travel_end_window', 'book_through', 'voyage_list',

@@ -38,14 +38,20 @@ export default async function AdminPage() {
   ]);
 
   const publishedList = publishedRows || [];
+  const pendingList = pending || [];
+
+  // Lookup so a suspected duplicate can be shown beside the offer it matched.
+  const offersById = {};
+  for (const o of [...publishedList, ...pendingList]) offersById[o.id] = o;
   const liveTotal = publishedTotal != null && notLiveTotal != null
     ? Math.max(0, publishedTotal - notLiveTotal)
     : null;
 
   return (
     <AdminDashboard
-      pending={pending || []}
+      pending={pendingList}
       published={publishedList}
+      offersById={offersById}
       liveTotal={liveTotal}
       scheduledTotal={scheduledTotal}
       expiredTotal={expiredTotal}
