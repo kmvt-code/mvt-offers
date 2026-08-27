@@ -39,6 +39,12 @@ export async function POST(req) {
 
   const update = {};
   if (status) update.status = status;
+  // Publishing or rejecting settles any duplicate question, so the flag goes
+  // with it. Otherwise a resolved offer keeps a stale "possible duplicate".
+  if (status === 'published' || status === 'rejected') {
+    update.duplicate_of = null;
+    update.duplicate_match = null;
+  }
   if (fields) {
     const allowed = ['vendor', 'supplier_type', 'audience', 'offer_start_date', 'offer_end_date',
       'travel_start_window', 'travel_end_window', 'book_through', 'voyage_list',
@@ -55,7 +61,15 @@ export async function POST(req) {
   }
 
   if (status === 'published') {
-      const effectiveEndDate = 'offer_end_date' in update ? update.offer_end_date : (fields ? fields.offer_end_date : null);
+    // Fall back to the date already stored. Approve & Publish sends only an id
+    // and a status, so checking the payload alone rejected every offer that
+    // already had an end date on it.
+    let effectiveEndDate = 'offer_end_date' in update ? update.offer_end_date : (fields ? fields.offer_end_date : null);
+    if (!effectiveEndDate) {
+      const { data: current } = await supabaseAdmin
+        .from('offers').select('offer_end_date').eq('id', id).single();
+      effectiveEndDate = current ? current.offer_end_date : null;
+    }
     if (!effectiveEndDate) {
       return NextResponse.json({ error: 'Offer end date is required to publish this offer.' }, { status: 400 });
     }
