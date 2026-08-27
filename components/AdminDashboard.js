@@ -21,7 +21,7 @@ const FIELDS = [
   { key: 'full_details', label: 'Full Details', multiline: true, full: true }
 ];
 
-export default function AdminDashboard({ pending, published, liveTotal, scheduledTotal, expiredTotal, vendors }) {
+export default function AdminDashboard({ pending, published, liveTotal, scheduledTotal, expiredTotal, offersById, vendors }) {
   const [tab, setTab] = useState('pending');
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
@@ -39,10 +39,28 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
   function clearSelection() { setSelected(new Set()); }
 
   async function action(id, status) {
-    await fetch('/api/admin/offers/update', {
+    const res = await fetch('/api/admin/offers/update', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status })
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'That did not save. Nothing has been changed.');
+      return;
+    }
+    window.location.reload();
+  }
+
+  async function resolveDuplicate(id, action) {
+    const res = await fetch('/api/admin/offers/duplicate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, action })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'That did not save. Nothing has been changed.');
+      return;
+    }
     window.location.reload();
   }
 
@@ -55,10 +73,15 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
   }
 
   async function publishWithContact(id, contact) {
-    await fetch('/api/admin/offers/update', {
+    const res = await fetch('/api/admin/offers/update', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status: 'published', fields: { contact } })
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'That did not save. Nothing has been changed.');
+      return;
+    }
     window.location.reload();
   }
 
@@ -151,7 +174,7 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
           </div>
         )}
 
-        {tab === 'pending' && <PendingTab pending={pending} action={action} setEditing={setEditing} publishWithContact={publishWithContact} selected={selected} toggleSelect={toggleSelect} />}
+        {tab === 'pending' && <PendingTab pending={pending} action={action} setEditing={setEditing} publishWithContact={publishWithContact} resolveDuplicate={resolveDuplicate} offersById={offersById} selected={selected} toggleSelect={toggleSelect} />}
         {isPublishedTab && <PublishedTab published={publishedTabs[tab].rows} emptyMessage={publishedTabs[tab].empty} action={action} setEditing={setEditing} togglePin={togglePin} selected={selected} toggleSelect={toggleSelect} />}
         {tab === 'vendors' && <VendorsTab vendors={vendors} />}
       </main>
@@ -159,7 +182,7 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
   );
 }
 
-function PendingTab({ pending, action, setEditing, publishWithContact, selected, toggleSelect }) {
+function PendingTab({ pending, action, setEditing, publishWithContact, resolveDuplicate, offersById, selected, toggleSelect }) {
   if (pending.length === 0) return <div className="empty">No offers awaiting review.</div>;
   return pending.map(o => (
     <div key={o.id} className="review-card">
@@ -189,6 +212,10 @@ function PendingTab({ pending, action, setEditing, publishWithContact, selected,
             </div>
           )}
 
+          {o.duplicate_match && (
+            <DuplicateBox offer={o} existing={o.duplicate_of ? offersById?.[o.duplicate_of] : null} resolveDuplicate={resolveDuplicate} />
+          )}
+
           {o.contact_conflict && (
             <div className="conflict-box">
               <div className="conflict-title">Contact mismatch — pick one</div>
@@ -216,6 +243,72 @@ function PendingTab({ pending, action, setEditing, publishWithContact, selected,
       </div>
     </div>
   ));
+}
+
+function DuplicateBox({ offer, existing, resolveDuplicate }) {
+  const match = offer.duplicate_match || {};
+  const sameEmail = !!match.same_email;
+  const percent = Math.round((match.score || 0) * 100);
+
+  return (
+    <div className="dup-box">
+      <div className="dup-title">
+        Looks like an offer you already have
+        <span className="dup-score">{percent}% match</span>
+      </div>
+
+      <div className="dup-why">
+        {(match.signals || []).join(' · ')}
+        {sameEmail && ' · both came in the same email'}
+      </div>
+
+      {existing ? (
+        <div className="dup-compare">
+          <div className="dup-side">
+            <div className="dup-side-label">Already in the library</div>
+            <div className="dup-side-vendor">{existing.vendor || 'Unnamed offer'}</div>
+            <div className="dup-side-dates">
+              {existing.offer_end_date ? `Through ${fmt(existing.offer_end_date)}` : 'No end date'}
+            </div>
+            <p className="dup-side-text">{existing.offer_overview || 'No overview'}</p>
+          </div>
+          <div className="dup-side dup-side-new">
+            <div className="dup-side-label">Just arrived</div>
+            <div className="dup-side-vendor">{offer.vendor || 'Unnamed offer'}</div>
+            <div className="dup-side-dates">
+              {offer.offer_end_date ? `Through ${fmt(offer.offer_end_date)}` : 'No end date'}
+            </div>
+            <p className="dup-side-text">{offer.offer_overview || 'No overview'}</p>
+          </div>
+        </div>
+      ) : (
+        <div className="dup-why" style={{ marginTop: 8 }}>
+          {sameEmail
+            ? 'The offer it matches arrived in the same email and is also waiting below.'
+            : 'The offer it matches is no longer in the library.'}
+        </div>
+      )}
+
+      <div className="dup-actions">
+        {existing && (
+          <button className="btn btn-approve" onClick={() => resolveDuplicate(offer.id, 'merge')}>
+            Merge into existing
+          </button>
+        )}
+        <button className="btn btn-primary" onClick={() => resolveDuplicate(offer.id, 'keep')}>
+          Keep both, publish this
+        </button>
+        <button className="btn btn-reject" onClick={() => resolveDuplicate(offer.id, 'discard')}>
+          Discard, already have it
+        </button>
+      </div>
+      {existing && (
+        <div className="dup-note">
+          Merging updates the existing offer with these details and keeps its link, its date added, and whether it is pinned. Attachments and tags from both are kept.
+        </div>
+      )}
+    </div>
+  );
 }
 
 function PublishedTab({ published, emptyMessage, action, setEditing, togglePin, selected, toggleSelect }) {
