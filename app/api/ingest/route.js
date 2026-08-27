@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabase';
+import { findDuplicate, scoreDuplicate, DUPLICATE_THRESHOLD } from '../../../lib/duplicates';
 
 const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
 const ALLOWED_INTERNAL_CONTACT = 'marketing@ytc.com';
@@ -60,6 +61,13 @@ export async function POST(req) {
     : { data: [] };
   const contactMap = Object.fromEntries((knownContacts || []).map(c => [c.vendor_normalized, c.contact]));
 
+  // Everything already in the library, for duplicate detection. Only the fields
+  // the scorer reads, so this stays cheap even as the library grows.
+  const { data: existingOffers } = await supabaseAdmin
+    .from('offers')
+    .select('id, vendor, supplier_type, offer_start_date, offer_end_date, offer_overview')
+    .in('status', ['published', 'pending_review']);
+
   const records = offers.map(o => {
     const vendorKey = normalizeVendor(o.vendor);
     const knownContact = contactMap[vendorKey];
@@ -114,7 +122,40 @@ export async function POST(req) {
     };
   });
 
-  const { data, error } = await supabaseAdmin.from('offers').insert(records).select('id, status, vendor, contact, contact_conflict');
+  // A suspected repeat is never published automatically, however trusted the
+  // sender. It waits in Pending Review with the match recorded so a person can
+  // merge it, keep it as a separate offer, or discard it.
+  records.forEach((rec, i) => {
+    const match = findDuplicate(rec, existingOffers);
+    if (match) {
+      rec.status = 'pending_review';
+      rec.duplicate_of = match.id;
+      rec.duplicate_match = {
+        score: match.score,
+        text_overlap: match.overlap,
+        signals: match.signals,
+        matched_vendor: match.vendor
+      };
+      return;
+    }
+    // Also catch the same offer appearing twice in one email.
+    for (let j = 0; j < i; j += 1) {
+      const against = scoreDuplicate(rec, records[j]);
+      if (against && against.score >= DUPLICATE_THRESHOLD) {
+        rec.status = 'pending_review';
+        rec.duplicate_match = {
+          score: against.score,
+          text_overlap: against.overlap,
+          signals: against.signals,
+          same_email: true,
+          matched_vendor: records[j].vendor
+        };
+        return;
+      }
+    }
+  });
+
+  const { data, error } = await supabaseAdmin.from('offers').insert(records).select('id, status, vendor, contact, contact_conflict, duplicate_of, duplicate_match');
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Save vendor memory only when:
@@ -137,12 +178,14 @@ export async function POST(req) {
   }
 
   const needsReview = records.some(r => r.status === 'pending_review');
+  const suspectedDuplicates = records.filter(r => r.duplicate_match).length;
 
   return NextResponse.json({
     ok: true,
     inserted: data.length,
     statuses: data.map(d => d.status),
-    needs_review: needsReview
+    needs_review: needsReview,
+    suspected_duplicates: suspectedDuplicates
   });
 }
 
