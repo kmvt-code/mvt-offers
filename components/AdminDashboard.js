@@ -39,10 +39,15 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
   function clearSelection() { setSelected(new Set()); }
 
   async function action(id, status) {
-    await fetch('/api/admin/offers/update', {
+    const res = await fetch('/api/admin/offers/update', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status })
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'That did not save. Nothing has been changed.');
+      return;
+    }
     window.location.reload();
   }
 
@@ -55,10 +60,15 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
   }
 
   async function publishWithContact(id, contact) {
-    await fetch('/api/admin/offers/update', {
+    const res = await fetch('/api/admin/offers/update', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status: 'published', fields: { contact } })
     });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'That did not save. Nothing has been changed.');
+      return;
+    }
     window.location.reload();
   }
 
