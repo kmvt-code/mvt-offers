@@ -1,14 +1,10 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../lib/supabase';
 import { isAuthed } from '../../../../lib/auth';
+import { normalizeVendor, findVendorContact } from '../../../../lib/vendors';
 
 const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
 const ALLOWED_INTERNAL_CONTACT = 'marketing@ytc.com';
-
-function normalizeVendor(v) {
-  if (!v) return '';
-  return String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
-}
 
 function extractEmail(s) {
   if (!s) return null;
@@ -36,7 +32,12 @@ export async function POST(req) {
         error: 'Internal MVT email addresses cannot be saved as a vendor contact (except marketing@ytc.com).'
       }, { status: 400 });
     }
-    const key = normalizeVendor(vendor_display);
+    // Adding "Silversea Cruises" by hand when "Silversea" is already on file
+    // should update that vendor, not create a second one beside it.
+    const { data: contactRows } = await supabaseAdmin
+      .from('vendor_contacts').select('vendor_normalized, vendor_display');
+    const existingRow = findVendorContact(vendor_display, contactRows);
+    const key = existingRow ? existingRow.vendor_normalized : normalizeVendor(vendor_display);
     const { error } = await supabaseAdmin.from('vendor_contacts').upsert({
       vendor_normalized: key,
       vendor_display,
