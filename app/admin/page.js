@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { supabaseAdmin } from '../../lib/supabase';
 import { todayInPacific } from '../../lib/dates';
+import { findDuplicate } from '../../lib/duplicates';
 import AdminDashboard from '../../components/AdminDashboard';
 import { isAuthed } from '../../lib/auth';
 
@@ -43,13 +44,35 @@ export default async function AdminPage() {
   // Lookup so a suspected duplicate can be shown beside the offer it matched.
   const offersById = {};
   for (const o of [...publishedList, ...pendingList]) offersById[o.id] = o;
+
+  // Score every offer awaiting review against the library, on every load, rather
+  // than trusting the flag written at ingest. Three reasons: offers that arrived
+  // before this existed have no flag and would never get one, a stored flag goes
+  // stale when the offer it pointed at is rejected, and the library moves under
+  // it. The point is to catch the repeat before it goes live, so the check
+  // belongs at the moment of review.
+  const library = [...publishedList, ...pendingList];
+  const pendingScored = pendingList.map(o => {
+    const match = findDuplicate(o, library);
+    if (!match) return { ...o, duplicate_of: null, duplicate_match: null };
+    return {
+      ...o,
+      duplicate_of: match.id,
+      duplicate_match: {
+        score: match.score,
+        text_overlap: match.overlap,
+        signals: match.signals,
+        matched_vendor: match.vendor
+      }
+    };
+  });
   const liveTotal = publishedTotal != null && notLiveTotal != null
     ? Math.max(0, publishedTotal - notLiveTotal)
     : null;
 
   return (
     <AdminDashboard
-      pending={pendingList}
+      pending={pendingScored}
       published={publishedList}
       offersById={offersById}
       liveTotal={liveTotal}
