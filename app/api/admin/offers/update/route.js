@@ -2,14 +2,10 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabase';
 import { isAuthed } from '../../../../../lib/auth';
 import { findDuplicate } from '../../../../../lib/duplicates';
+import { normalizeVendor, findVendorContact } from '../../../../../lib/vendors';
 
 const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
 const ALLOWED_INTERNAL_CONTACT = 'marketing@ytc.com';
-
-function normalizeVendor(v) {
-  if (!v) return '';
-  return String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
-}
 
 function extractEmail(s) {
   if (!s) return null;
@@ -112,11 +108,16 @@ export async function POST(req) {
     && updated.contact
     && !isDisallowedInternalContact(updated.contact)
   ) {
-    const key = normalizeVendor(updated.vendor);
+    // Write onto the row this vendor already has, under whatever name it was
+    // first saved as, rather than creating a sibling row for a name variant.
+    const { data: contactRows } = await supabaseAdmin
+      .from('vendor_contacts').select('vendor_normalized, vendor_display');
+    const existingRow = findVendorContact(updated.vendor, contactRows);
+    const key = existingRow ? existingRow.vendor_normalized : normalizeVendor(updated.vendor);
     if (key) {
       await supabaseAdmin.from('vendor_contacts').upsert({
         vendor_normalized: key,
-        vendor_display: updated.vendor,
+        vendor_display: existingRow ? existingRow.vendor_display : updated.vendor,
         contact: updated.contact,
         source_offer_id: updated.id
       }, { onConflict: 'vendor_normalized' });
