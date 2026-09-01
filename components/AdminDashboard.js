@@ -88,10 +88,25 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
   async function bulkAction(actionName) {
     const ids = Array.from(selected);
     if (!ids.length) return;
-    await fetch('/api/admin/offers/bulk', {
+    const res = await fetch('/api/admin/offers/bulk', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids, action: actionName })
     });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      window.alert(body.error || 'That did not save. Nothing has been changed.');
+      return;
+    }
+    // Publishing in bulk can leave some behind, for a missing end date or
+    // because the offer looks like one already in the library. Say which,
+    // rather than reloading and letting them quietly stay in the list.
+    if (body.skipped && body.skipped.length) {
+      const lines = body.skipped.map(s => `\u00b7 ${s.vendor || 'Unnamed offer'} \u2014 ${s.reason}`).join('\n');
+      window.alert(
+        `${body.count} published. ${body.skipped.length} left in Pending Review:\n\n${lines}\n\n` +
+        'Open each one to merge it, keep it as a separate offer, or discard it.'
+      );
+    }
     window.location.reload();
   }
 

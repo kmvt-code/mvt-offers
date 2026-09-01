@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabase';
 import { isAuthed } from '../../../../../lib/auth';
+import { findDuplicate } from '../../../../../lib/duplicates';
 
 const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
 const ALLOWED_INTERNAL_CONTACT = 'marketing@ytc.com';
@@ -61,18 +62,37 @@ export async function POST(req) {
   }
 
   if (status === 'published') {
+    const { data: current } = await supabaseAdmin
+      .from('offers').select('*').eq('id', id).single();
+
     // Fall back to the date already stored. Approve & Publish sends only an id
     // and a status, so checking the payload alone rejected every offer that
     // already had an end date on it.
     let effectiveEndDate = 'offer_end_date' in update ? update.offer_end_date : (fields ? fields.offer_end_date : null);
-    if (!effectiveEndDate) {
-      const { data: current } = await supabaseAdmin
-        .from('offers').select('offer_end_date').eq('id', id).single();
-      effectiveEndDate = current ? current.offer_end_date : null;
-    }
+    if (!effectiveEndDate) effectiveEndDate = current ? current.offer_end_date : null;
     if (!effectiveEndDate) {
       return NextResponse.json({ error: 'Offer end date is required to publish this offer.' }, { status: 400 });
     }
+
+    // Nothing that looks like a repeat goes live through this route. The
+    // candidate is the stored row with this request's edits applied, so
+    // correcting the vendor or the dates here can clear the match on its own.
+    // Merge, Keep both and Discard are the deliberate way past this, and they
+    // go through /api/admin/offers/duplicate rather than here.
+    if (current) {
+      const { data: library } = await supabaseAdmin
+        .from('offers')
+        .select('id, vendor, supplier_type, offer_start_date, offer_end_date, offer_overview')
+        .in('status', ['published', 'pending_review']);
+      const match = findDuplicate({ ...current, ...update }, library);
+      if (match) {
+        return NextResponse.json({
+          error: `This looks like an offer already in the library: ${match.vendor || 'an existing offer'}, ${Math.round(match.score * 100)}% match (${match.signals.join(', ')}). Use Merge, Keep both, or Discard on the offer to decide.`,
+          duplicate_of: match.id
+        }, { status: 409 });
+      }
+    }
+
     update.contact_conflict = null;
     update.missing_fields = null;
   }

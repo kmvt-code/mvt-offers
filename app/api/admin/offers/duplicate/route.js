@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabase';
 import { isAuthed } from '../../../../../lib/auth';
+import { findDuplicate } from '../../../../../lib/duplicates';
 
 // Fields a merge carries over from the incoming offer onto the one already in
 // the library. Deliberately excludes id, created_at and pinned so the existing
@@ -68,15 +69,29 @@ export async function POST(req) {
   }
 
   // Merge: update the existing offer in place, then retire this copy.
-  if (!incoming.duplicate_of) {
+  // duplicate_of is only written at ingest, so an offer that was already sitting
+  // in Pending Review before any of this existed has none. Those are exactly the
+  // offers this feature is for, so work out the target here instead of refusing.
+  // Recomputed rather than taken from the request, so the server merges into
+  // what the matcher actually says and not into whatever the page last drew.
+  let targetId = incoming.duplicate_of;
+  if (!targetId) {
+    const { data: library } = await supabaseAdmin
+      .from('offers')
+      .select('id, vendor, supplier_type, offer_start_date, offer_end_date, offer_overview')
+      .in('status', ['published', 'pending_review']);
+    const match = findDuplicate(incoming, library);
+    targetId = match ? match.id : null;
+  }
+  if (!targetId) {
     return NextResponse.json(
-      { error: 'This offer is not linked to an existing one, so there is nothing to merge into.' },
+      { error: 'This offer no longer looks like anything in the library, so there is nothing to merge into. Publish it as its own offer instead.' },
       { status: 400 }
     );
   }
 
   const { data: target, error: targetError } = await supabaseAdmin
-    .from('offers').select('*').eq('id', incoming.duplicate_of).single();
+    .from('offers').select('*').eq('id', targetId).single();
   if (targetError || !target) {
     return NextResponse.json({ error: 'The offer this was matched against no longer exists.' }, { status: 404 });
   }
