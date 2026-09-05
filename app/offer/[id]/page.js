@@ -23,9 +23,13 @@ function fileLabel(url) {
 }
 
 export default async function OfferDetail({ params }) {
+  // Named columns rather than *, so the public role only ever needs read access
+  // to what this page shows. The offers table also holds the original vendor
+  // email, the raw AI extraction and the sender address, none of which belong
+  // in a public read path.
   const { data: offer } = await supabasePublic
     .from('offers')
-    .select('*')
+    .select('id, vendor, supplier_type, audience, offer_overview, full_details, offer_start_date, offer_end_date, travel_start_window, travel_end_window, book_through, voyage_list, offer_details, client_facing_content, contact, attachment_urls, pinned, tags')
     .eq('id', params.id)
     .eq('status', 'published')
     .single();
