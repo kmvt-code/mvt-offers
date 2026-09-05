@@ -21,8 +21,9 @@ const FIELDS = [
   { key: 'full_details', label: 'Full Details', multiline: true, full: true }
 ];
 
-export default function AdminDashboard({ pending, published, liveTotal, scheduledTotal, expiredTotal, offersById, vendors }) {
+export default function AdminDashboard({ pending, published, liveTotal, scheduledTotal, expiredTotal, offersById, vendors, query, publishedShown, publishedTotal, publishedLimit }) {
   const [tab, setTab] = useState('pending');
+  const [term, setTerm] = useState(query || '');
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [selected, setSelected] = useState(new Set());
@@ -110,6 +111,12 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
     window.location.reload();
   }
 
+  function runSearch(e) {
+    if (e) e.preventDefault();
+    const next = term.trim();
+    window.location.href = next ? `/admin?q=${encodeURIComponent(next)}` : '/admin';
+  }
+
   async function logout() {
     await fetch('/api/admin/logout', { method: 'POST' });
     window.location.href = '/admin/login';
@@ -169,8 +176,37 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
           <span className={`admin-tab ${tab === 'vendors' ? 'active' : ''}`} onClick={() => { setTab('vendors'); clearSelection(); }}>
             Vendor Contacts ({vendors.length})
           </span>
-          <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setCreating(true)}>+ New offer</button>
+          <form onSubmit={runSearch} style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              value={term}
+              onChange={e => setTerm(e.target.value)}
+              placeholder="Search offers"
+              aria-label="Search offers"
+              style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)', fontSize: 13, width: 200 }}
+            />
+            <button type="submit" className="btn btn-edit">Search</button>
+            {query && <button type="button" className="btn btn-edit" onClick={() => { setTerm(''); window.location.href = '/admin'; }}>Clear</button>}
+          </form>
+          <button className="btn btn-primary" onClick={() => setCreating(true)}>+ New offer</button>
         </div>
+
+        {query && (
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 14px' }}>
+            Showing offers matching <strong>{query}</strong>. Every tab and count above is filtered to the search.
+          </p>
+        )}
+
+        {!query && publishedTotal != null && publishedShown != null && publishedTotal > publishedShown && (
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 14px' }}>
+            The published tabs list the {publishedShown} most recent of {publishedTotal}. Search to reach the rest.
+          </p>
+        )}
+
+        {query && publishedLimit != null && publishedShown === publishedLimit && (
+          <p style={{ fontSize: 13, color: 'var(--danger)', margin: '0 0 14px' }}>
+            This search filled the {publishedLimit} row limit, so there may be more matches than are shown. Narrow the term.
+          </p>
+        )}
 
         {showBulk && (
           <div className="bulk-bar">
