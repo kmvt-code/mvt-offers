@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabase';
 import { isAuthed } from '../../../../../lib/auth';
+import { findDuplicate } from '../../../../../lib/duplicates';
 
 function parseTags(input) {
   if (!input) return null;
@@ -39,8 +40,38 @@ export async function POST(req) {
     original_body: null
   };
 
+  // This was the last way an offer could reach the public site without the checks
+  // every other publish path makes. Rather than refuse and lose what was typed,
+  // an offer that cannot be published is saved into Pending Review instead,
+  // where the end date can be filled in or the duplicate resolved.
+  let held = null;
+
+  if (record.status === 'published' && !record.offer_end_date) {
+    record.status = 'pending_review';
+    held = 'Saved to Pending Review instead of publishing: an offer end date is required to publish.';
+  }
+
+  if (record.status === 'published') {
+    const { data: library } = await supabaseAdmin
+      .from('offers')
+      .select('id, vendor, supplier_type, offer_start_date, offer_end_date, offer_overview')
+      .in('status', ['published', 'pending_review']);
+    const match = findDuplicate(record, library);
+    if (match) {
+      record.status = 'pending_review';
+      record.duplicate_of = match.id;
+      record.duplicate_match = {
+        score: match.score,
+        text_overlap: match.overlap,
+        signals: match.signals,
+        matched_vendor: match.vendor
+      };
+      held = `Saved to Pending Review instead of publishing: this looks like ${match.vendor || 'an offer already in the library'}, ${Math.round(match.score * 100)}% match. Merge, keep both, or discard it there.`;
+    }
+  }
+
   const { data, error } = await supabaseAdmin.from('offers').insert(record).select('id').single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  return NextResponse.json({ ok: true, id: data.id });
+  return NextResponse.json({ ok: true, id: data ? data.id : null, status: record.status, held });
 }
