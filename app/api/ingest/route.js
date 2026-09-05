@@ -1,15 +1,11 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabase';
 import { findDuplicate, scoreDuplicate, DUPLICATE_THRESHOLD } from '../../../lib/duplicates';
+import { normalizeVendor, findVendorContact } from '../../../lib/vendors';
 
 const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
 const ALLOWED_INTERNAL_CONTACT = 'marketing@ytc.com';
 const REQUIRED_FIELDS = ['vendor', 'offer_overview', 'audience', 'offer_end_date', 'contact'];
-
-function normalizeVendor(v) {
-  if (!v) return '';
-  return String(v).toLowerCase().replace(/[^a-z0-9]/g, '');
-}
 
 function extractEmail(s) {
   if (!s) return null;
@@ -55,11 +51,12 @@ export async function POST(req) {
   const senderDomain = (sender_email || '').split('@')[1]?.toLowerCase() || '';
   const isInternal = INTERNAL_DOMAINS.includes(senderDomain);
 
-  const vendorKeys = [...new Set(offers.map(o => normalizeVendor(o.vendor)).filter(Boolean))];
-  const { data: knownContacts } = vendorKeys.length
-    ? await supabaseAdmin.from('vendor_contacts').select('vendor_normalized, contact').in('vendor_normalized', vendorKeys)
-    : { data: [] };
-  const contactMap = Object.fromEntries((knownContacts || []).map(c => [c.vendor_normalized, c.contact]));
+  // Every contact row, not a filtered set. "Silversea" and "Silversea Cruises"
+  // are one vendor but two different keys, so the match cannot be expressed as
+  // an `in` filter and has to happen here. The table is small.
+  const { data: contactRows } = await supabaseAdmin
+    .from('vendor_contacts').select('vendor_normalized, vendor_display, contact');
+  const knownContacts = contactRows || [];
 
   // Everything already in the library, for duplicate detection. Only the fields
   // the scorer reads, so this stays cheap even as the library grows.
@@ -69,8 +66,8 @@ export async function POST(req) {
     .in('status', ['published', 'pending_review']);
 
   const records = offers.map(o => {
-    const vendorKey = normalizeVendor(o.vendor);
-    const knownContact = contactMap[vendorKey];
+    const knownRow = findVendorContact(o.vendor, knownContacts);
+    const knownContact = knownRow ? knownRow.contact : null;
 
     // Filter out internal personal addresses from what the AI extracted.
     // marketing@ytc.com IS allowed.
@@ -166,14 +163,20 @@ export async function POST(req) {
   for (const rec of data) {
     if (rec.status === 'published' && rec.contact && rec.vendor && !rec.contact_conflict) {
       if (isDisallowedInternalContact(rec.contact)) continue;
-      const key = normalizeVendor(rec.vendor);
+      // Update the row this vendor already has, under whatever name it was first
+      // saved as. Keying on the incoming spelling is what split the memory in two.
+      const existingRow = findVendorContact(rec.vendor, knownContacts);
+      const key = existingRow ? existingRow.vendor_normalized : normalizeVendor(rec.vendor);
       if (!key) continue;
       await supabaseAdmin.from('vendor_contacts').upsert({
         vendor_normalized: key,
-        vendor_display: rec.vendor,
+        vendor_display: existingRow ? existingRow.vendor_display : rec.vendor,
         contact: rec.contact,
         source_offer_id: rec.id
       }, { onConflict: 'vendor_normalized' });
+      // Keep the local list current so two offers for one vendor in a single
+      // email do not create two rows.
+      if (!existingRow) knownContacts.push({ vendor_normalized: key, vendor_display: rec.vendor, contact: rec.contact });
     }
   }
 
