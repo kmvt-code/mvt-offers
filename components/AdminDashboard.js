@@ -565,6 +565,8 @@ function CreateForm({ onCancel, onSaved }) {
   const [attachments, setAttachments] = useState([]);
   const [newUrl, setNewUrl] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [held, setHeld] = useState('');
 
   function set(k, v) { setData(d => ({ ...d, [k]: v })); }
   function addAttachment() { const u = newUrl.trim(); if (!u) return; setAttachments(p => [...p, u]); setNewUrl(''); }
@@ -572,15 +574,31 @@ function CreateForm({ onCancel, onSaved }) {
 
   async function save(publish) {
     if (!data.vendor || !data.offer_overview) {
-      alert('Vendor and Offer Overview are required.');
+      setError('Vendor and Offer Overview are required.');
       return;
     }
+    setError('');
     setSaving(true);
     const fields = { ...data, attachment_urls: attachments };
-    await fetch('/api/admin/offers/create', {
+    const res = await fetch('/api/admin/offers/create', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ fields, publish })
     });
+    const out = await res.json().catch(() => ({}));
+
+    // Nothing was saved. Stay on the form so what was typed is not lost.
+    if (!res.ok) {
+      setError(out.error || 'Something went wrong while saving. The offer was not created.');
+      setSaving(false);
+      return;
+    }
+
+    // The offer exists now, but the route could not publish it and demoted it to
+    // Pending Review. onSaved reloads the page, so this has to be read here or
+    // it is never read at all. saving stays true, which keeps the save buttons
+    // disabled so the same offer cannot be created twice.
+    if (out.held) { setHeld(out.held); return; }
+
     onSaved();
   }
 
@@ -631,11 +649,20 @@ function CreateForm({ onCancel, onSaved }) {
           </div>
         </div>
 
-        <div className="review-actions" style={{ marginTop: 24 }}>
-          <button className="btn btn-approve" onClick={() => save(true)} disabled={saving}>{saving ? 'Saving…' : 'Save & Publish'}</button>
-          <button className="btn btn-primary" onClick={() => save(false)} disabled={saving}>Save as draft (pending)</button>
-          <button className="btn btn-edit" onClick={onCancel}>Cancel</button>
-        </div>
+        {error && <div className="form-error" style={{ color: '#b42318', fontSize: 13, marginTop: 20 }}>{error}</div>}
+
+        {held ? (
+          <div style={{ marginTop: 24, padding: 14, background: 'var(--cream)', border: '1px solid var(--cream-dark)', borderRadius: 8 }}>
+            <div style={{ fontSize: 14, marginBottom: 12 }}>{held}</div>
+            <button className="btn btn-primary" onClick={onSaved}>Go to Pending Review</button>
+          </div>
+        ) : (
+          <div className="review-actions" style={{ marginTop: 24 }}>
+            <button className="btn btn-approve" onClick={() => save(true)} disabled={saving}>{saving ? 'Saving…' : 'Save & Publish'}</button>
+            <button className="btn btn-primary" onClick={() => save(false)} disabled={saving}>Save as draft (pending)</button>
+            <button className="btn btn-edit" onClick={onCancel}>Cancel</button>
+          </div>
+        )}
       </div>
     </main>
   );
