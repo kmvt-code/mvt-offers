@@ -53,7 +53,8 @@ export default async function AdminPage({ searchParams }) {
     { count: notLiveTotal },
     { count: scheduledTotal },
     { count: expiredTotal },
-    { data: vendors }
+    { data: vendors },
+    { data: announcementRows }
   ] = await Promise.all([
     withSearch(supabaseAdmin.from('offers').select('*').eq('status', 'pending_review')).order('created_at', { ascending: false }),
     withSearch(supabaseAdmin.from('offers').select('*').eq('status', 'published')).order('pinned', { ascending: false }).order('created_at', { ascending: false }).limit(PUBLISHED_LIST_LIMIT),
@@ -63,7 +64,10 @@ export default async function AdminPage({ searchParams }) {
     filter ? noCount : published().or(`offer_end_date.lt.${today},offer_start_date.gt.${today}`),
     filter ? noCount : published().gt('offer_start_date', today),
     filter ? noCount : published().lt('offer_end_date', today),
-    supabaseAdmin.from('vendor_contacts').select('*').order('vendor_display', { ascending: true })
+    supabaseAdmin.from('vendor_contacts').select('*').order('vendor_display', { ascending: true }),
+    // The most recent banner, on or off. Fails soft if the table is missing.
+    supabaseAdmin.from('announcements').select('*').order('created_at', { ascending: false }).limit(1)
+      .then(r => r, () => ({ data: null }))
   ]);
 
   const publishedList = publishedRows || [];
@@ -111,6 +115,7 @@ export default async function AdminPage({ searchParams }) {
       scheduledTotal={scheduledTotal}
       expiredTotal={expiredTotal}
       vendors={vendors || []}
+      announcement={(announcementRows && announcementRows[0]) || null}
     />
   );
 }

@@ -21,7 +21,7 @@ const FIELDS = [
   { key: 'full_details', label: 'Full Details', multiline: true, full: true }
 ];
 
-export default function AdminDashboard({ pending, published, liveTotal, scheduledTotal, expiredTotal, offersById, vendors, query, publishedShown, publishedTotal, publishedLimit }) {
+export default function AdminDashboard({ announcement, pending, published, liveTotal, scheduledTotal, expiredTotal, offersById, vendors, query, publishedShown, publishedTotal, publishedLimit }) {
   const [tab, setTab] = useState('pending');
   const [term, setTerm] = useState(query || '');
   const [editing, setEditing] = useState(null);
@@ -160,6 +160,8 @@ export default function AdminDashboard({ pending, published, liveTotal, schedule
       </div>
 
       <main className="container" style={{ paddingBottom: 60 }}>
+        <AnnouncementPanel announcement={announcement} />
+
         <div className="admin-tabs">
           <span className={`admin-tab ${tab === 'pending' ? 'active' : ''}`} onClick={() => { setTab('pending'); clearSelection(); }}>
             Pending Review ({pending.length})
@@ -638,5 +640,86 @@ function CreateForm({ onCancel, onSaved }) {
         </div>
       </div>
     </main>
+  );
+}
+
+function announcementState(a, today) {
+  if (!a || !a.active) return { label: 'Off', on: false };
+  if (a.start_date && a.start_date > today) return { label: `Scheduled \u00b7 starts ${fmt(a.start_date)}`, on: false };
+  if (a.end_date && a.end_date < today) return { label: `Ended ${fmt(a.end_date)}`, on: false };
+  return { label: a.end_date ? `Showing now \u00b7 through ${fmt(a.end_date)}` : 'Showing now \u00b7 no end date', on: true };
+}
+
+function AnnouncementPanel({ announcement }) {
+  const today = todayInPacific();
+  const live = announcement && announcement.active ? announcement : null;
+  const [open, setOpen] = useState(false);
+  const [message, setMessage] = useState(live ? live.message : '');
+  const [startDate, setStartDate] = useState(live ? (live.start_date || '') : today);
+  const [endDate, setEndDate] = useState(live ? (live.end_date || '') : '');
+  const [saving, setSaving] = useState(false);
+  const state = announcementState(announcement, today);
+
+  async function post(payload) {
+    setSaving(true);
+    const res = await fetch('/api/admin/announcement', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'That did not save. Nothing has been changed.');
+      setSaving(false);
+      return;
+    }
+    window.location.reload();
+  }
+
+  function save() {
+    post({ action: 'save', id: live ? live.id : null, message, start_date: startDate, end_date: endDate });
+  }
+
+  function remove() {
+    if (!live) return;
+    if (!confirm('Take the announcement down from the site?')) return;
+    post({ action: 'remove', id: live.id });
+  }
+
+  return (
+    <div className="announce-panel">
+      <div className="announce-panel-head">
+        <span className="announce-panel-title">Site announcement</span>
+        <span className={`announce-status ${state.on ? 'on' : ''}`}>{state.label}</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+          {!open && <button className="btn btn-edit" onClick={() => setOpen(true)}>{live ? 'Edit' : 'Add announcement'}</button>}
+          {!open && live && <button className="btn btn-reject" onClick={remove} disabled={saving}>Take down</button>}
+        </div>
+      </div>
+
+      {!open && live && <p className="announce-preview">{live.message}</p>}
+
+      {open && (
+        <div className="announce-form">
+          <label htmlFor="announce-message">Message</label>
+          <textarea id="announce-message" value={message} maxLength={600} onChange={e => setMessage(e.target.value)} placeholder="Shown in a bar across the top of the public site. Email addresses and links become clickable." />
+          <div className="form-hint">{message.length}/600</div>
+          <div className="announce-dates">
+            <div>
+              <label htmlFor="announce-start">Show from</label>
+              <input id="announce-start" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+            </div>
+            <div>
+              <label htmlFor="announce-end">Show through</label>
+              <input id="announce-end" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+              <div className="form-hint">Leave blank to keep it up until you take it down. Dates are Pacific.</div>
+            </div>
+          </div>
+          <div className="review-actions" style={{ marginTop: 16 }}>
+            <button className="btn btn-primary" onClick={save} disabled={saving || !message.trim()}>{saving ? 'Saving\u2026' : 'Save announcement'}</button>
+            <button className="btn btn-edit" onClick={() => setOpen(false)} disabled={saving}>Cancel</button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

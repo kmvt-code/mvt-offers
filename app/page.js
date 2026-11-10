@@ -1,10 +1,13 @@
 import { supabasePublic } from '../lib/supabase';
 import OfferList from '../components/OfferList';
 import LastUpdated from '../components/LastUpdated';
+import Announcement from '../components/Announcement';
+import { currentAnnouncement } from '../lib/announcement';
 
 export const revalidate = 60;
 
 export default async function HomePage() {
+  const announcementPromise = currentAnnouncement();
   const { data: offers } = await supabasePublic
     .from('offers')
     .select('id, vendor, supplier_type, audience, offer_overview, offer_start_date, offer_end_date, travel_start_window, travel_end_window, attachment_urls, voyage_list, offer_details, client_facing_content, pinned, tags, updated_at')
@@ -21,6 +24,8 @@ export default async function HomePage() {
     }, null);
   }
 
+  const announcement = await announcementPromise;
+
   return (
     <>
       <header className="site-header">
@@ -35,6 +40,8 @@ export default async function HomePage() {
           {lastUpdated && <LastUpdated timestamp={lastUpdated} />}
         </div>
       </header>
+
+      <Announcement message={announcement} />
 
       <main className="main">
         <div className="container">

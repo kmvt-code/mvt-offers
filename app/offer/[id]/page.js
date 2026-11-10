@@ -1,6 +1,8 @@
 import { supabasePublic } from '../../../lib/supabase';
 import { notFound } from 'next/navigation';
 import { formatDate } from '../../../lib/dates';
+import Announcement from '../../../components/Announcement';
+import { currentAnnouncement } from '../../../lib/announcement';
 
 export const revalidate = 60;
 
@@ -36,6 +38,8 @@ export default async function OfferDetail({ params }) {
 
   if (!offer) notFound();
 
+  const announcement = await currentAnnouncement();
+
   const files = (offer.attachment_urls || []).filter(Boolean);
   const fileResources = files.map((url, i) => ({
     kind: 'file',
@@ -62,6 +66,8 @@ export default async function OfferDetail({ params }) {
           </a>
         </div>
       </header>
+
+      <Announcement message={announcement} />
 
       <main className="main">
         <div className="container">
