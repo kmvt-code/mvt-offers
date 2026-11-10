@@ -443,3 +443,32 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 700px) {
   .dup-compare { grid-template-columns: 1fr; }
 }
+
+/* Site announcement banner */
+.announcement { background: var(--gold-light); border-bottom: 1px solid var(--gold); color: var(--navy); }
+.announcement-inner { display: flex; gap: 14px; align-items: baseline; padding-top: 12px; padding-bottom: 12px; }
+.announcement-label {
+  flex: none; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+  background: var(--navy); color: var(--gold-light); padding: 3px 8px; border-radius: 4px;
+}
+.announcement-text { font-size: 14px; line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+.announcement-link { text-decoration: underline; font-weight: 500; }
+@media (max-width: 600px) {
+  .announcement-inner { flex-direction: column; gap: 6px; }
+}
+
+/* Admin announcement editor */
+.announce-panel { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin: 20px 0 18px; }
+.announce-panel-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.announce-panel-title { font-family: 'DM Serif Display', serif; font-size: 17px; color: var(--navy); }
+.announce-status { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--cream-dark); color: var(--text-muted); }
+.announce-status.on { background: rgba(45, 122, 79, 0.12); color: var(--success); }
+.announce-preview { font-size: 14px; color: var(--text); margin: 10px 0 0; overflow-wrap: anywhere; }
+.announce-form textarea, .announce-form input {
+  width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 7px;
+  font-size: 14px; font-family: inherit; background: var(--cream);
+}
+.announce-form textarea { min-height: 80px; resize: vertical; }
+.announce-form label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 12px 0 6px; }
+.announce-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 600px) { .announce-dates { grid-template-columns: 1fr; } }
