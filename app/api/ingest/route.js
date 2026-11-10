@@ -7,6 +7,41 @@ const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
 const ALLOWED_INTERNAL_CONTACT = 'marketing@ytc.com';
 const REQUIRED_FIELDS = ['vendor', 'offer_overview', 'audience', 'offer_end_date', 'contact'];
 
+const FIELD_NAMES = {
+  vendor: 'vendor',
+  offer_overview: 'offer overview',
+  audience: 'audience',
+  offer_end_date: 'end date',
+  contact: 'contact'
+};
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// Why one record was held for review, in plain words for the notification
+// email. Mirrors the checks above that set status to pending_review.
+function reviewReasons(rec, isInternal) {
+  const reasons = [];
+  if (rec.missing_fields && rec.missing_fields.length) {
+    reasons.push(`missing ${rec.missing_fields.map(f => FIELD_NAMES[f] || f).join(', ')}`);
+  }
+  if (rec.contact_conflict) {
+    reasons.push(`contact in the email (${rec.contact_conflict.ai_found}) differs from the one on file (${rec.contact_conflict.on_file})`);
+  }
+  if (rec.duplicate_match) {
+    const pct = Math.round((rec.duplicate_match.score || 0) * 100);
+    const what = rec.duplicate_match.same_email
+      ? `another offer in the same email (${rec.duplicate_match.matched_vendor || 'unnamed'})`
+      : `${rec.duplicate_match.matched_vendor || 'an offer'} already in the library`;
+    reasons.push(`looks like ${what}, ${pct}% match`);
+  }
+  if (!isInternal) reasons.push('sent from outside MVT');
+  return reasons;
+}
+
 function extractEmail(s) {
   if (!s) return null;
   const m = String(s).match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/);
@@ -183,12 +218,32 @@ export async function POST(req) {
   const needsReview = records.some(r => r.status === 'pending_review');
   const suspectedDuplicates = records.filter(r => r.duplicate_match).length;
 
+  // One line per held offer, for the "review needed" email Make sends.
+  const held = records
+    .filter(r => r.status === 'pending_review')
+    .map(r => ({ vendor: r.vendor || 'Unnamed offer', reasons: reviewReasons(r, isInternal) }));
+  const reviewSummaryHtml = held.length
+    ? '<ul>' + held.map(h =>
+        `<li><strong>${escapeHtml(h.vendor)}</strong>: ${escapeHtml(h.reasons.join('; ') || 'needs a look')}</li>`
+      ).join('') + '</ul>'
+    : '';
+
+  // Copy the person who forwarded the offer, but only MVT staff. A supplier
+  // writing in directly should not receive an internal review notice.
+  // Always an array so Make can map it straight into the CC field; empty
+  // means no CC.
+  const notifyCc = isInternal && sender_email
+    ? [{ address: String(sender_email).trim().toLowerCase() }]
+    : [];
+
   return NextResponse.json({
     ok: true,
     inserted: data.length,
     statuses: data.map(d => d.status),
     needs_review: needsReview,
-    suspected_duplicates: suspectedDuplicates
+    suspected_duplicates: suspectedDuplicates,
+    review_summary_html: reviewSummaryHtml,
+    notify_cc: notifyCc
   });
 }
 
