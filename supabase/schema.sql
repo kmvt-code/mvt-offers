@@ -177,3 +177,38 @@ create policy "Public can view active published offers"
 --   add column if not exists duplicate_match jsonb;
 --
 -- create index if not exists offers_duplicate_of_idx on public.offers(duplicate_of);
+
+-- ============================================================
+-- MIGRATION: site announcement banner
+-- Run this ONCE against the live database before deploying the
+-- announcement change. Adds one new table and touches no existing data.
+-- ============================================================
+create table if not exists public.announcements (
+  id uuid primary key default gen_random_uuid(),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  message text not null,
+  start_date date,
+  end_date date,
+  active boolean not null default true
+);
+
+alter table public.announcements enable row level security;
+
+-- Same Pacific-date window as offers, so a banner set to end on Friday stays
+-- up all of Friday in Santa Barbara.
+drop policy if exists "Public can view current announcements" on public.announcements;
+create policy "Public can view current announcements"
+  on public.announcements for select
+  using (
+    active
+    and (start_date is null
+         or start_date <= (now() at time zone 'America/Los_Angeles')::date)
+    and (end_date is null
+         or end_date >= (now() at time zone 'America/Los_Angeles')::date)
+  );
+
+drop trigger if exists announcements_updated_at on public.announcements;
+create trigger announcements_updated_at
+  before update on public.announcements
+  for each row execute function update_updated_at();
