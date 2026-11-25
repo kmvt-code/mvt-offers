@@ -1,0 +1,13 @@
+Today's date: {{formatDate(now; "YYYY-MM-DD"; "America/Los_Angeles")}}
+
+Email Subject: {{1.subject}}
+Email From: {{1.sender.emailAddress}}
+
+Email Body (text):
+{{1.text}}
+
+Email Body (HTML):
+{{1.html}}
+
+Document attachments (already uploaded):
+{{join(4.array; newline)}}

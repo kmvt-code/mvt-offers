@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabase';
 import { isAuthed } from '../../../../../lib/auth';
-import { findDuplicate } from '../../../../../lib/duplicates';
+import { findDuplicate, LIBRARY_COLUMNS } from '../../../../../lib/duplicates';
 import { normalizeVendor, findVendorContact } from '../../../../../lib/vendors';
 
 const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
@@ -49,6 +49,13 @@ export async function POST(req) {
     for (const k of allowed) {
       if (k in fields) update[k] = fields[k] || null;
     }
+    // A date typed in by hand replaces whatever the pipeline worked out.
+    if ('offer_end_date' in fields) {
+      const { data: cur } = await supabaseAdmin.from('offers').select('offer_end_date').eq('id', id).single();
+      if (cur && (fields.offer_end_date || null) !== cur.offer_end_date) {
+        update.end_date_source = fields.offer_end_date ? 'manual' : null;
+      }
+    }
     if ('pinned' in fields) update.pinned = !!fields.pinned;
     if ('tags' in fields) update.tags = parseTags(fields.tags);
     if ('attachment_urls' in fields) {
@@ -78,7 +85,7 @@ export async function POST(req) {
     if (current) {
       const { data: library } = await supabaseAdmin
         .from('offers')
-        .select('id, vendor, supplier_type, offer_start_date, offer_end_date, offer_overview')
+        .select(LIBRARY_COLUMNS)
         .in('status', ['published', 'pending_review']);
       const match = findDuplicate({ ...current, ...update }, library);
       if (match) {

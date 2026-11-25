@@ -1,35 +1,8 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../../../lib/supabase';
 import { isAuthed } from '../../../../../lib/auth';
-import { findDuplicate } from '../../../../../lib/duplicates';
-
-// Fields a merge carries over from the incoming offer onto the one already in
-// the library. Deliberately excludes id, created_at and pinned so the existing
-// offer keeps its link, its place in the list, and whether it is featured.
-const MERGE_FIELDS = [
-  'vendor', 'supplier_type', 'audience', 'offer_start_date', 'offer_end_date',
-  'travel_start_window', 'travel_end_window', 'book_through', 'voyage_list',
-  'offer_details', 'client_facing_content', 'contact', 'offer_overview', 'full_details'
-];
-
-function isEmpty(value) {
-  return value === null || value === undefined || String(value).trim() === '';
-}
-
-function union(a, b) {
-  const merged = [...(a || []), ...(b || [])]
-    .map(v => (typeof v === 'string' ? v.trim() : v))
-    .filter(Boolean);
-  const seen = new Set();
-  const out = [];
-  for (const v of merged) {
-    const key = String(v).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(v);
-  }
-  return out.length ? out : null;
-}
+import { findDuplicate, LIBRARY_COLUMNS } from '../../../../../lib/duplicates';
+import { buildMergeUpdate } from '../../../../../lib/merge';
 
 export async function POST(req) {
   if (!isAuthed()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -78,7 +51,7 @@ export async function POST(req) {
   if (!targetId) {
     const { data: library } = await supabaseAdmin
       .from('offers')
-      .select('id, vendor, supplier_type, offer_start_date, offer_end_date, offer_overview')
+      .select(LIBRARY_COLUMNS)
       .in('status', ['published', 'pending_review']);
     const match = findDuplicate(incoming, library);
     targetId = match ? match.id : null;
@@ -96,16 +69,7 @@ export async function POST(req) {
     return NextResponse.json({ error: 'The offer this was matched against no longer exists.' }, { status: 404 });
   }
 
-  const update = {};
-  for (const field of MERGE_FIELDS) {
-    if (!isEmpty(incoming[field])) update[field] = incoming[field];
-  }
-  // Attachments and tags accumulate rather than replace: a follow-up email
-  // usually adds a flyer, it does not retract the previous one.
-  const mergedAttachments = union(target.attachment_urls, incoming.attachment_urls);
-  if (mergedAttachments) update.attachment_urls = mergedAttachments;
-  const mergedTags = union(target.tags, incoming.tags);
-  if (mergedTags) update.tags = mergedTags;
+  const update = buildMergeUpdate(target, incoming);
 
   if (!update.offer_end_date && !target.offer_end_date) {
     return NextResponse.json({ error: 'Offer end date is required to publish this offer.' }, { status: 400 });

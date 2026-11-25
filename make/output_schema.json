@@ -1,0 +1,121 @@
+{
+  "type": "object",
+  "properties": {
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "offer",
+              "update",
+              "ignore"
+            ]
+          },
+          "kind_certainty": {
+            "type": "string",
+            "enum": [
+              "high",
+              "medium",
+              "low"
+            ]
+          },
+          "vendor": {
+            "type": "string"
+          },
+          "supplier_type": {
+            "type": "string"
+          },
+          "properties": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "offer_start_date": {
+            "type": "string"
+          },
+          "offer_end_date": {
+            "type": "string"
+          },
+          "travel_start_window": {
+            "type": "string"
+          },
+          "travel_end_window": {
+            "type": "string"
+          },
+          "audience": {
+            "type": "string"
+          },
+          "offer_overview": {
+            "type": "string"
+          },
+          "full_details": {
+            "type": "string"
+          },
+          "book_through": {
+            "type": "string"
+          },
+          "voyage_list": {
+            "type": "string"
+          },
+          "offer_details": {
+            "type": "string"
+          },
+          "client_facing_content": {
+            "type": "string"
+          },
+          "contact": {
+            "type": "string"
+          },
+          "benefit_quote": {
+            "type": "string"
+          },
+          "date_quote": {
+            "type": "string"
+          },
+          "update_category": {
+            "type": "string"
+          },
+          "update_headline": {
+            "type": "string"
+          },
+          "event_date": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "kind_certainty",
+          "vendor",
+          "supplier_type",
+          "properties",
+          "offer_start_date",
+          "offer_end_date",
+          "travel_start_window",
+          "travel_end_window",
+          "audience",
+          "offer_overview",
+          "full_details",
+          "book_through",
+          "voyage_list",
+          "offer_details",
+          "client_facing_content",
+          "contact",
+          "benefit_quote",
+          "date_quote",
+          "update_category",
+          "update_headline",
+          "event_date"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "additionalProperties": false
+}

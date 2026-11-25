@@ -21,7 +21,7 @@ const FIELDS = [
   { key: 'full_details', label: 'Full Details', multiline: true, full: true }
 ];
 
-export default function AdminDashboard({ announcement, pending, published, liveTotal, scheduledTotal, expiredTotal, offersById, vendors, query, publishedShown, publishedTotal, publishedLimit }) {
+export default function AdminDashboard({ announcement, pending, published, liveTotal, scheduledTotal, expiredTotal, offersById, vendors, query, publishedShown, publishedTotal, publishedLimit, settings, activity = [], updates = [], recent = [] }) {
   const [tab, setTab] = useState('pending');
   const [term, setTerm] = useState(query || '');
   const [editing, setEditing] = useState(null);
@@ -47,6 +47,19 @@ export default function AdminDashboard({ announcement, pending, published, liveT
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
       window.alert(body.error || 'That did not save. Nothing has been changed.');
+      return;
+    }
+    window.location.reload();
+  }
+
+  async function moveToNews(id) {
+    const res = await fetch('/api/admin/offers/bulk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: [id], action: 'to_news' })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'That did not move. Nothing has been changed.');
       return;
     }
     window.location.reload();
@@ -178,6 +191,15 @@ export default function AdminDashboard({ announcement, pending, published, liveT
           <span className={`admin-tab ${tab === 'vendors' ? 'active' : ''}`} onClick={() => { setTab('vendors'); clearSelection(); }}>
             Vendor Contacts ({vendors.length})
           </span>
+          <span className={`admin-tab ${tab === 'news' ? 'active' : ''}`} onClick={() => { setTab('news'); clearSelection(); }}>
+            News ({updates.filter(u => u.status === 'published').length})
+          </span>
+          <span className={`admin-tab ${tab === 'activity' ? 'active' : ''}`} onClick={() => { setTab('activity'); clearSelection(); }}>
+            Activity
+          </span>
+          <span className={`admin-tab ${tab === 'settings' ? 'active' : ''}`} onClick={() => { setTab('settings'); clearSelection(); }}>
+            Settings
+          </span>
           <form onSubmit={runSearch} style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
             <input
               value={term}
@@ -214,6 +236,8 @@ export default function AdminDashboard({ announcement, pending, published, liveT
           <div className="bulk-bar">
             <span><strong>{selected.size}</strong> selected</span>
             {tab === 'pending' && <button className="btn btn-approve" onClick={() => bulkAction('publish')}>Publish all</button>}
+            {tab === 'pending' && <button className="btn btn-primary" onClick={() => bulkAction('merge')}>Merge all into matches</button>}
+            {tab === 'pending' && <button className="btn btn-edit" onClick={() => bulkAction('to_news')}>Move all to News</button>}
             {isPublishedTab && (
               <>
                 <button className="btn btn-edit" onClick={() => bulkAction('pin')}>Pin all</button>
@@ -227,15 +251,18 @@ export default function AdminDashboard({ announcement, pending, published, liveT
           </div>
         )}
 
-        {tab === 'pending' && <PendingTab pending={pending} action={action} setEditing={setEditing} publishWithContact={publishWithContact} resolveDuplicate={resolveDuplicate} offersById={offersById} selected={selected} toggleSelect={toggleSelect} />}
+        {tab === 'pending' && <PendingTab pending={pending} action={action} setEditing={setEditing} publishWithContact={publishWithContact} resolveDuplicate={resolveDuplicate} moveToNews={moveToNews} offersById={offersById} selected={selected} toggleSelect={toggleSelect} />}
         {isPublishedTab && <PublishedTab published={publishedTabs[tab].rows} emptyMessage={publishedTabs[tab].empty} action={action} setEditing={setEditing} togglePin={togglePin} selected={selected} toggleSelect={toggleSelect} />}
         {tab === 'vendors' && <VendorsTab vendors={vendors} />}
+        {tab === 'news' && <NewsTab updates={updates} />}
+        {tab === 'activity' && <ActivityTab activity={activity} offersById={offersById} />}
+        {tab === 'settings' && <SettingsTab settings={settings} recent={recent} />}
       </main>
     </>
   );
 }
 
-function PendingTab({ pending, action, setEditing, publishWithContact, resolveDuplicate, offersById, selected, toggleSelect }) {
+function PendingTab({ pending, action, setEditing, publishWithContact, resolveDuplicate, moveToNews, offersById, selected, toggleSelect }) {
   if (pending.length === 0) return <div className="empty">No offers awaiting review.</div>;
   return pending.map(o => (
     <div key={o.id} className="review-card">
@@ -255,9 +282,24 @@ function PendingTab({ pending, action, setEditing, publishWithContact, resolveDu
             {o.audience && <span className="tag tag-audience">{o.audience}</span>}
             {o.offer_start_date && <span className="tag tag-date">From {fmt(o.offer_start_date)}</span>}
             {o.offer_end_date && <span className="tag tag-date">Through {fmt(o.offer_end_date)}</span>}
+            {o.end_date_source && <span className="tag tag-date">{END_SOURCE_LABEL[o.end_date_source] || o.end_date_source}</span>}
+            {o.confidence != null && <span className="tag tag-custom">Confidence {o.confidence}%</span>}
             {o.tags?.map(t => <span key={t} className="tag tag-custom">#{t}</span>)}
           </div>
           {o.offer_overview && <p style={{ fontSize: 14, color: 'var(--text-muted)', margin: '12px 0', lineHeight: 1.5 }}>{o.offer_overview}</p>}
+
+          {o.review_reasons?.length > 0 && (
+            <div className="missing-list">
+              <strong>Held because:</strong> {o.review_reasons.join('; ')}
+            </div>
+          )}
+
+          {(o.evidence?.benefit_quote || o.evidence?.date_quote) && (
+            <div className="evidence-box">
+              {o.evidence.benefit_quote && <div><span className="evidence-label">Benefit, from the email:</span> &ldquo;{o.evidence.benefit_quote}&rdquo;</div>}
+              {o.evidence.date_quote && <div><span className="evidence-label">Date, from the email:</span> &ldquo;{o.evidence.date_quote}&rdquo;</div>}
+            </div>
+          )}
 
           {o.missing_fields?.length > 0 && (
             <div className="missing-list">
@@ -286,10 +328,11 @@ function PendingTab({ pending, action, setEditing, publishWithContact, resolveDu
           )}
 
           <div className="review-actions">
-            {!o.contact_conflict && (!o.missing_fields || o.missing_fields.length === 0) && (
+            {!o.contact_conflict && o.vendor && o.offer_overview && (
               <button className="btn btn-approve" onClick={() => action(o.id, 'published')}>Approve & Publish</button>
             )}
             <button className="btn btn-edit" onClick={() => setEditing(o)}>Edit & Approve</button>
+            <button className="btn btn-edit" onClick={() => moveToNews(o.id)}>Move to News</button>
             <button className="btn btn-reject" onClick={() => action(o.id, 'rejected')}>Reject</button>
           </div>
         </div>
@@ -466,6 +509,13 @@ function VendorsTab({ vendors }) {
     </>
   );
 }
+
+const END_SOURCE_LABEL = {
+  booking_deadline: 'Book by date',
+  travel_end: 'End = last travel date',
+  estimated: 'End date estimated',
+  manual: 'End date set by hand'
+};
 
 function fmt(d) {
   return formatDate(d);
@@ -748,5 +798,174 @@ function AnnouncementPanel({ announcement }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// v4 tabs: Settings (thresholds), Activity (undo), News (supplier updates)
+// ---------------------------------------------------------------------------
+
+function benefitVerified(r) {
+  return (r.evidence?.checks || []).some(c => String(c.label).startsWith('Benefit found'));
+}
+
+function SettingsTab({ settings, recent }) {
+  const [publish, setPublish] = useState(settings?.publish_threshold ?? 75);
+  const [merge, setMerge] = useState(settings?.merge_threshold ?? 90);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const fresh = recent.filter(r => !r.duplicate_match);
+  const publishable = fresh.filter(r => r.source === 'internal' && r.vendor && r.offer_overview && benefitVerified(r));
+  const wouldPublish = publishable.filter(r => r.confidence >= publish).length;
+  const repeats = recent.filter(r => r.duplicate_match && r.source === 'internal');
+  const wouldMerge = repeats.filter(r => Math.round((r.duplicate_match.score || 0) * 100) >= merge).length;
+
+  async function save() {
+    setSaving(true); setSaved(false);
+    const res = await fetch('/api/admin/settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publish_threshold: publish, merge_threshold: merge })
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'Settings did not save.');
+      return;
+    }
+    setSaved(true);
+  }
+
+  return (
+    <div className="settings-panel">
+      <div className="settings-row">
+        <label htmlFor="publish-threshold"><strong>Publish without review at</strong> {publish}% confidence or higher</label>
+        <input id="publish-threshold" type="range" min="40" max="100" step="1" value={publish} onChange={e => { setPublish(Number(e.target.value)); setSaved(false); }} />
+        <p className="settings-help">
+          Confidence is worked out from checks, not the AI&rsquo;s opinion: the benefit appears word for word in the email (40), known vendor (15),
+          end date from a booking deadline or travel date (25) or estimated (15), the date appears in the email (10), the AI is sure it is an offer (10).
+          An offer always waits for you if it came from outside MVT, has no vendor or overview, or its benefit cannot be found in the email.
+        </p>
+        <p className="settings-preview">
+          {publishable.length || fresh.length
+            ? <>At this setting, <strong>{wouldPublish}</strong> of the last {fresh.length} new offers would have published without review.</>
+            : 'A preview appears here once offers have come through the updated pipeline.'}
+        </p>
+      </div>
+
+      <div className="settings-row">
+        <label htmlFor="merge-threshold"><strong>Merge repeats without review at</strong> {merge}% match or higher</label>
+        <input id="merge-threshold" type="range" min="62" max="100" step="1" value={merge} onChange={e => { setMerge(Number(e.target.value)); setSaved(false); }} />
+        <p className="settings-help">
+          Matches below this, down to 62%, wait in Pending Review with Merge, Keep both and Discard. A merge keeps the existing offer&rsquo;s link and pin and adds any new files.
+        </p>
+        <p className="settings-preview">
+          {repeats.length
+            ? <>At this setting, <strong>{wouldMerge}</strong> of the last {repeats.length} repeats would have merged without review.</>
+            : 'A preview appears here once repeats have come through the updated pipeline.'}
+        </p>
+      </div>
+
+      <div className="review-actions">
+        <button className="btn btn-approve" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</button>
+        {saved && <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>Saved. New emails use these settings.</span>}
+      </div>
+      <p className="settings-help">Everything that publishes or merges without you is listed on the Activity tab with an Undo button.</p>
+    </div>
+  );
+}
+
+const ACTIVITY_LABEL = {
+  auto_publish: 'Published without review',
+  auto_merge: 'Merged without review',
+  manual_merge: 'Merged (bulk)',
+  moved_to_news: 'Moved to News'
+};
+
+function ActivityTab({ activity, offersById }) {
+  const [busy, setBusy] = useState(null);
+
+  async function undo(id) {
+    setBusy(id);
+    const res = await fetch('/api/admin/activity/undo', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id })
+    });
+    setBusy(null);
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'Undo did not work. Nothing has been changed.');
+      return;
+    }
+    window.location.reload();
+  }
+
+  if (!activity.length) return <div className="empty">Nothing has been published, merged or moved automatically yet.</div>;
+  return (
+    <div className="activity-list">
+      {activity.map(a => {
+        const target = a.target_id ? offersById?.[a.target_id] : null;
+        return (
+          <div key={a.id} className={`activity-row ${a.undone_at ? 'activity-undone' : ''}`}>
+            <div className="activity-main">
+              <div className="activity-title">
+                {ACTIVITY_LABEL[a.action] || a.action} · <strong>{a.vendor || 'Unnamed'}</strong>
+                {a.score != null && <span className="dup-score">{a.score}%</span>}
+              </div>
+              <div className="activity-meta">
+                {new Date(a.created_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                {a.details?.subject && <> · {a.details.subject}</>}
+                {target && <> · into &ldquo;{(target.offer_overview || '').slice(0, 80)}&rdquo;</>}
+                {a.undone_at && <> · undone</>}
+              </div>
+            </div>
+            {!a.undone_at && ACTIVITY_LABEL[a.action] && (
+              <button className="btn btn-edit" onClick={() => undo(a.id)} disabled={busy === a.id}>{busy === a.id ? 'Undoing…' : 'Undo'}</button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function NewsTab({ updates }) {
+  async function setStatus(id, status) {
+    const res = await fetch('/api/admin/updates', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, status })
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      window.alert(body.error || 'That did not save.');
+      return;
+    }
+    window.location.reload();
+  }
+
+  if (!updates.length) return <div className="empty">No supplier news yet. Openings, renovations and webinar invites land here instead of in offers.</div>;
+  return (
+    <>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '0 0 14px' }}>
+        Advisors see published items on <a href="/news" style={{ textDecoration: 'underline' }}>/news</a> until they expire, 90 days after arrival.
+      </p>
+      {updates.map(u => (
+        <div key={u.id} className="review-card">
+          <div className="review-card-meta">
+            <span>{u.category || 'General'}</span><span>•</span>
+            <span>{fmt(String(u.created_at).slice(0, 10))}</span><span>•</span>
+            <span>Expires {fmt(u.expires_on)}</span><span>•</span>
+            <span>{u.status === 'published' ? 'Visible to advisors' : 'Hidden'}</span>
+          </div>
+          <div className="review-card-vendor">{u.vendor || 'Unnamed supplier'}</div>
+          <p style={{ fontSize: 14, color: 'var(--text-muted)', margin: '8px 0', lineHeight: 1.5 }}>{u.summary}</p>
+          <div className="review-actions">
+            {u.status === 'published'
+              ? <button className="btn btn-reject" onClick={() => setStatus(u.id, 'hidden')}>Hide</button>
+              : <button className="btn btn-approve" onClick={() => setStatus(u.id, 'published')}>Show to advisors</button>}
+          </div>
+        </div>
+      ))}
+    </>
   );
 }

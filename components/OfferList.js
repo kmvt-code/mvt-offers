@@ -169,7 +169,7 @@ function OfferCard({ offer }) {
       <div className="offer-tags" style={{ marginTop: 'auto' }}>
         {offer.supplier_type && <span className="tag tag-type">{offer.supplier_type}</span>}
         {offer.audience && <span className="tag tag-audience">{offer.audience}</span>}
-        {offer.offer_end_date && <span className="tag tag-date">Through {formatDate(offer.offer_end_date)}</span>}
+        {offer.offer_end_date && <span className="tag tag-date">Through {formatDate(offer.offer_end_date)}{offer.end_date_source === 'estimated' ? ' (est.)' : ''}</span>}
  {offer.attachment_urls?.length > 0 && (
           <span className="tag tag-attachment">📎 {offer.attachment_urls.length} file{offer.attachment_urls.length === 1 ? '' : 's'}</span>
         )}
@@ -191,7 +191,7 @@ function OfferRow({ offer }) {
       </div>
       <div className="offer-col-muted offer-col-audience">{offer.audience || ''}</div>
       <div className="offer-col-muted offer-col-overview">{offer.offer_overview || ''}</div>
-      <div className="offer-col-muted offer-col-window">{offer.offer_end_date ? `Through ${formatDate(offer.offer_end_date)}` : ''}</div>
+      <div className="offer-col-muted offer-col-window">{offer.offer_end_date ? `Through ${formatDate(offer.offer_end_date)}${offer.end_date_source === 'estimated' ? ' (est.)' : ''}` : ''}</div>
       <div className="offer-tags offer-row-tags offer-col-tags">
         {(offer.tags || []).slice(0, 3).map(t => <span key={t} className="tag tag-custom">#{t}</span>)}
         {offer.attachment_urls?.length > 0 && (

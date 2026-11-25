@@ -31,7 +31,7 @@ export default async function OfferDetail({ params }) {
   // in a public read path.
   const { data: offer } = await supabasePublic
     .from('offers')
-    .select('id, vendor, supplier_type, audience, offer_overview, full_details, offer_start_date, offer_end_date, travel_start_window, travel_end_window, book_through, voyage_list, offer_details, client_facing_content, contact, attachment_urls, pinned, tags')
+    .select('id, vendor, supplier_type, audience, offer_overview, full_details, offer_start_date, offer_end_date, end_date_source, travel_start_window, travel_end_window, book_through, voyage_list, offer_details, client_facing_content, contact, attachment_urls, pinned, tags')
     .eq('id', params.id)
     .eq('status', 'published')
     .single();
@@ -81,7 +81,7 @@ export default async function OfferDetail({ params }) {
             <div className="offer-detail-tags">
               {offer.supplier_type && <span className="tag tag-type">{offer.supplier_type}</span>}
               {offer.audience && <span className="tag tag-audience">{offer.audience}</span>}
-              {offer.offer_end_date && <span className="tag tag-date">Through {formatDate(offer.offer_end_date)}</span>}
+              {offer.offer_end_date && <span className="tag tag-date">Through {formatDate(offer.offer_end_date)}{offer.end_date_source === 'estimated' ? ' (estimated)' : ''}</span>}
               {offer.tags?.map(t => <span key={t} className="tag tag-custom">#{t}</span>)}
             </div>
 
@@ -91,6 +91,12 @@ export default async function OfferDetail({ params }) {
               <Field label="Supplier Type" value={offer.supplier_type} />
               <Field label="Audience" value={offer.audience} />
               <Field label="Offer Window" value={range(offer.offer_start_date, offer.offer_end_date, formatDate)} />
+              {offer.end_date_source === 'estimated' && (
+                <p className="estimate-note">The supplier did not give an end date, so this one is estimated. Confirm the offer is still running with the supplier before booking.</p>
+              )}
+              {offer.end_date_source === 'travel_end' && (
+                <p className="estimate-note">No booking deadline was given, so the offer is shown until the last travel date.</p>
+              )}
               <Field label="Travel Window" value={range(offer.travel_start_window, offer.travel_end_window)} />
               <Field label="Book Through" value={offer.book_through} />
               <Field label="Voyage List" value={offer.voyage_list} link />

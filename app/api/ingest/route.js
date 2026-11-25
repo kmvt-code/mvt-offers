@@ -1,45 +1,30 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '../../../lib/supabase';
-import { findDuplicate, scoreDuplicate, DUPLICATE_THRESHOLD } from '../../../lib/duplicates';
-import { normalizeVendor, findVendorContact } from '../../../lib/vendors';
+import { findDuplicate, textOverlap, LIBRARY_COLUMNS } from '../../../lib/duplicates';
+import { normalizeVendor, findVendorContact, vendorsMatch } from '../../../lib/vendors';
+import { resolveExpiry, parseLooseDate, correctYear, todayInPacific } from '../../../lib/dates';
+import { documentAttachments } from '../../../lib/attachments';
+import { scoreConfidence, hardHolds, normalizeText } from '../../../lib/scoring';
+import { loadSettings } from '../../../lib/settings';
+import { buildMergeUpdate, snapshot } from '../../../lib/merge';
+import { logActivity } from '../../../lib/activity';
+
+// v4 ingest (Nov 2026). One request per email. Each item the AI returns is
+// labelled offer, update or ignore:
+//   offer  -> offers table: auto merged, auto published, or held for review
+//   update -> supplier_updates table (the News page), no review
+//   ignore -> dropped, counted in the response
+// Thresholds come from app_settings (admin Settings tab).
 
 const INTERNAL_DOMAINS = ['montecitovillagetravel.com', 'ytc.com'];
 const ALLOWED_INTERNAL_CONTACT = 'marketing@ytc.com';
-const REQUIRED_FIELDS = ['vendor', 'offer_overview', 'audience', 'offer_end_date', 'contact'];
-
-const FIELD_NAMES = {
-  vendor: 'vendor',
-  offer_overview: 'offer overview',
-  audience: 'audience',
-  offer_end_date: 'end date',
-  contact: 'contact'
-};
+const UPDATE_DAYS = 90;
+const UPDATE_CATEGORIES = ['Opening', 'Renovation', 'Leadership', 'Itinerary', 'Event', 'Webinar', 'Award', 'General'];
 
 function escapeHtml(s) {
   return String(s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
-// Why one record was held for review, in plain words for the notification
-// email. Mirrors the checks above that set status to pending_review.
-function reviewReasons(rec, isInternal) {
-  const reasons = [];
-  if (rec.missing_fields && rec.missing_fields.length) {
-    reasons.push(`missing ${rec.missing_fields.map(f => FIELD_NAMES[f] || f).join(', ')}`);
-  }
-  if (rec.contact_conflict) {
-    reasons.push(`contact in the email (${rec.contact_conflict.ai_found}) differs from the one on file (${rec.contact_conflict.on_file})`);
-  }
-  if (rec.duplicate_match) {
-    const pct = Math.round((rec.duplicate_match.score || 0) * 100);
-    const what = rec.duplicate_match.same_email
-      ? `another offer in the same email (${rec.duplicate_match.matched_vendor || 'unnamed'})`
-      : `${rec.duplicate_match.matched_vendor || 'an offer'} already in the library`;
-    reasons.push(`looks like ${what}, ${pct}% match`);
-  }
-  if (!isInternal) reasons.push('sent from outside MVT');
-  return reasons;
 }
 
 function extractEmail(s) {
@@ -49,21 +34,17 @@ function extractEmail(s) {
 }
 
 // True if this email is internal AND is NOT the allowed marketing@ytc.com address.
-// We don't want forwarders' personal emails (jane@ytc.com) ending up as the vendor contact.
 function isDisallowedInternalContact(contactString) {
   const email = extractEmail(contactString);
   if (!email) return false;
   if (email === ALLOWED_INTERNAL_CONTACT) return false;
-  const domain = email.split('@')[1];
-  return INTERNAL_DOMAINS.includes(domain);
+  return INTERNAL_DOMAINS.includes(email.split('@')[1]);
 }
 
-// Returns the contact string only if it passes the internal-filter rule.
-// If the AI returned an internal address that isn't marketing@ytc.com, we treat it as if no contact was found.
 function sanitizeContact(contactString) {
   if (!contactString) return null;
   if (isDisallowedInternalContact(contactString)) return null;
-  return contactString.trim() || null;
+  return String(contactString).trim() || null;
 }
 
 function contactsConflict(a, b) {
@@ -73,6 +54,43 @@ function contactsConflict(a, b) {
   return ea !== eb;
 }
 
+function addDays(isoDate, days) {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return t.toISOString().slice(0, 10);
+}
+
+function str(v) { return v === null || v === undefined ? '' : String(v).trim(); }
+function orNull(v) { const s = str(v); return s || null; }
+
+function list(v) {
+  if (Array.isArray(v)) return v.map(str).filter(Boolean);
+  if (typeof v === 'string' && v.trim()) return v.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+  return [];
+}
+
+// Accepts every shape Make has sent or may send: the new single `extraction`
+// field (object or JSON string), or the old `offers` (array, one object, or
+// a JSON string).
+function readItems(body) {
+  let raw = body.extraction ?? body.extraction_json ?? body.offers;
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw); } catch { return null; }
+  }
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw.items)) return raw.items;
+  if (typeof raw === 'object') return [raw];
+  return null;
+}
+
+function kindOf(item) {
+  const k = str(item.kind).toLowerCase();
+  if (k === 'update' || k === 'news') return 'update';
+  if (k === 'ignore') return 'ignore';
+  return 'offer';
+}
+
 export async function POST(req) {
   const body = await req.json();
 
@@ -80,126 +98,223 @@ export async function POST(req) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const { sender_email, subject, body: emailBody, attachment_urls = [], offers = [] } = body;
-  if (!offers.length) return NextResponse.json({ error: 'No offers provided' }, { status: 400 });
+  const { sender_email, subject } = body;
+  const emailBody = body.body || body.text || '';
+  const emailHtml = body.html || '';
+  const items = readItems(body);
+  if (items === null) return NextResponse.json({ error: 'Could not read the extraction JSON' }, { status: 400 });
 
   const senderDomain = (sender_email || '').split('@')[1]?.toLowerCase() || '';
   const isInternal = INTERNAL_DOMAINS.includes(senderDomain);
+  const received = todayInPacific();
+  const normalizedEmail = normalizeText(`${subject || ''} ${emailBody} ${emailHtml}`);
+  const attachments = documentAttachments(body.attachment_urls);
 
-  // Every contact row, not a filtered set. "Silversea" and "Silversea Cruises"
-  // are one vendor but two different keys, so the match cannot be expressed as
-  // an `in` filter and has to happen here. The table is small.
-  const { data: contactRows } = await supabaseAdmin
-    .from('vendor_contacts').select('vendor_normalized, vendor_display, contact');
+  const settings = await loadSettings(supabaseAdmin);
+
+  const [{ data: contactRows }, { data: libraryRows }] = await Promise.all([
+    supabaseAdmin.from('vendor_contacts').select('vendor_normalized, vendor_display, contact'),
+    supabaseAdmin.from('offers').select(LIBRARY_COLUMNS).in('status', ['published', 'pending_review'])
+  ]);
   const knownContacts = contactRows || [];
+  const library = libraryRows || [];
 
-  // Everything already in the library, for duplicate detection. Only the fields
-  // the scorer reads, so this stays cheap even as the library grows.
-  const { data: existingOffers } = await supabaseAdmin
-    .from('offers')
-    .select('id, vendor, supplier_type, offer_start_date, offer_end_date, offer_overview')
-    .in('status', ['published', 'pending_review']);
+  const offers = items.filter(i => i && kindOf(i) === 'offer');
+  const updates = items.filter(i => i && kindOf(i) === 'update');
+  const ignored = items.length - offers.length - updates.length;
 
-  const records = offers.map(o => {
+  // ---------------- News / supplier updates ----------------
+  let updatesAdded = 0;
+  if (updates.length) {
+    const { data: recentUpdates } = await supabaseAdmin
+      .from('supplier_updates').select('id, vendor, summary')
+      .gte('created_at', addDays(received, -60));
+    const seen = [...(recentUpdates || [])];
+    const rows = [];
+    for (const u of updates) {
+      const summary = orNull(u.offer_overview || u.summary);
+      if (!summary) continue;
+      const repeat = seen.find(r => vendorsMatch(r.vendor, u.vendor) && textOverlap(r.summary, summary) >= 0.75);
+      if (repeat) continue;
+      const category = UPDATE_CATEGORIES.find(c => c.toLowerCase() === str(u.update_category).toLowerCase()) || 'General';
+      const row = {
+        status: isInternal ? 'published' : 'hidden',
+        vendor: orNull(u.vendor),
+        supplier_type: orNull(u.supplier_type),
+        category,
+        headline: orNull(u.update_headline) || summary.slice(0, 90),
+        summary,
+        details: orNull(u.full_details),
+        properties: list(u.properties).length ? list(u.properties) : null,
+        link: orNull(u.client_facing_content) || orNull(u.offer_details),
+        event_date: correctYear(parseLooseDate(u.event_date || u.offer_end_date, received), received),
+        contact: sanitizeContact(u.contact),
+        expires_on: addDays(received, UPDATE_DAYS),
+        sender_email: sender_email || null,
+        original_subject: subject || null,
+        original_body: emailBody || null
+      };
+      rows.push(row);
+      seen.push({ vendor: row.vendor, summary: row.summary });
+    }
+    if (rows.length) {
+      const { data: inserted, error } = await supabaseAdmin.from('supplier_updates').insert(rows).select('id, vendor');
+      if (error) console.error('[ingest] supplier_updates insert failed', error.message);
+      else updatesAdded = inserted.length;
+    }
+  }
+
+  // ---------------- Offers ----------------
+  const records = [];
+  const plans = []; // what to do with each record after insert
+  const batch = []; // records already accepted from this same email
+
+  for (const o of offers) {
     const knownRow = findVendorContact(o.vendor, knownContacts);
     const knownContact = knownRow ? knownRow.contact : null;
-
-    // Filter out internal personal addresses from what the AI extracted.
-    // marketing@ytc.com IS allowed.
-    const aiContactRaw = o.contact && String(o.contact).trim();
-    const aiContact = sanitizeContact(aiContactRaw);
-
+    const aiContact = sanitizeContact(str(o.contact));
     let finalContact = aiContact || null;
     let conflict = null;
-
     if (knownContact && aiContact) {
-      if (contactsConflict(aiContact, knownContact)) {
-        conflict = { ai_found: aiContact, on_file: knownContact };
-        finalContact = aiContact;
-      }
+      if (contactsConflict(aiContact, knownContact)) conflict = { ai_found: aiContact, on_file: knownContact };
     } else if (knownContact && !aiContact) {
       finalContact = knownContact;
     }
 
-    const fieldsForRequiredCheck = { ...o, contact: finalContact };
-    const missing = REQUIRED_FIELDS.filter(f => !fieldsForRequiredCheck[f] || String(fieldsForRequiredCheck[f]).trim() === '');
+    const expiry = resolveExpiry({ offer_end_date: o.offer_end_date, travel_end_window: o.travel_end_window }, received);
+    const vendorKnown = !!knownRow || library.some(l => l.status === 'published' && vendorsMatch(l.vendor, o.vendor));
 
-    const status = (isInternal && missing.length === 0 && !conflict) ? 'published' : 'pending_review';
-
-    return {
-      status,
+    const rec = {
+      status: 'pending_review',
       source: isInternal ? 'internal' : 'partner',
       sender_email,
       sender_domain: senderDomain,
-      missing_fields: missing.length ? missing : null,
       contact_conflict: conflict,
-      vendor: o.vendor || null,
-      supplier_type: o.supplier_type || null,
-      offer_start_date: parseDate(o.offer_start_date),
-      offer_end_date: parseDate(o.offer_end_date),
-      travel_start_window: o.travel_start_window || null,
-      travel_end_window: o.travel_end_window || null,
-      audience: o.audience || null,
-      offer_overview: o.offer_overview || null,
-      full_details: o.full_details || null,
-      book_through: o.book_through || null,
-      voyage_list: o.voyage_list || null,
-      offer_details: o.offer_details || null,
-      client_facing_content: o.client_facing_content || null,
+      vendor: orNull(o.vendor),
+      supplier_type: orNull(o.supplier_type),
+      properties: list(o.properties).length ? list(o.properties) : null,
+      offer_start_date: parseLooseDate(o.offer_start_date, received),
+      offer_end_date: expiry.date,
+      end_date_source: expiry.source,
+      travel_start_window: orNull(o.travel_start_window),
+      travel_end_window: orNull(o.travel_end_window),
+      audience: orNull(o.audience),
+      offer_overview: orNull(o.offer_overview),
+      full_details: orNull(o.full_details),
+      book_through: orNull(o.book_through),
+      voyage_list: orNull(o.voyage_list),
+      offer_details: orNull(o.offer_details),
+      client_facing_content: orNull(o.client_facing_content),
       contact: finalContact,
-      attachment_urls: attachment_urls.length ? attachment_urls : null,
+      attachment_urls: attachments.length ? attachments : null,
       original_subject: subject || null,
       original_body: emailBody || null,
-      raw_extraction: o
-    };
-  });
-
-  // A suspected repeat is never published automatically, however trusted the
-  // sender. It waits in Pending Review with the match recorded so a person can
-  // merge it, keep it as a separate offer, or discard it.
-  records.forEach((rec, i) => {
-    const match = findDuplicate(rec, existingOffers);
-    if (match) {
-      rec.status = 'pending_review';
-      rec.duplicate_of = match.id;
-      rec.duplicate_match = {
-        score: match.score,
-        text_overlap: match.overlap,
-        signals: match.signals,
-        matched_vendor: match.vendor
-      };
-      return;
-    }
-    // Also catch the same offer appearing twice in one email.
-    for (let j = 0; j < i; j += 1) {
-      const against = scoreDuplicate(rec, records[j]);
-      if (against && against.score >= DUPLICATE_THRESHOLD) {
-        rec.status = 'pending_review';
-        rec.duplicate_match = {
-          score: against.score,
-          text_overlap: against.overlap,
-          signals: against.signals,
-          same_email: true,
-          matched_vendor: records[j].vendor
-        };
-        return;
+      raw_extraction: o,
+      kind_certainty: orNull(o.kind_certainty),
+      evidence: {
+        benefit_quote: orNull(o.benefit_quote),
+        date_quote: orNull(o.date_quote),
+        year_corrected: expiry.corrected || undefined
       }
+    };
+    // A start date after the end date means the AI swapped or misread them.
+    if (rec.offer_start_date && rec.offer_start_date > rec.offer_end_date) rec.offer_start_date = null;
+
+    const missing = ['vendor', 'offer_overview', 'audience', 'contact'].filter(f => !rec[f]);
+    rec.missing_fields = missing.length ? missing : null;
+
+    const conf = scoreConfidence(rec, { normalizedEmail, vendorKnown });
+    rec.confidence = conf.score;
+    rec.evidence.checks = conf.checks;
+    const holds = hardHolds(rec, { isInternal, benefitVerified: conf.benefitVerified });
+
+    // Repeats: first within this email, then against the library.
+    const twin = findDuplicate(rec, batch.map((b, i) => ({ ...b, id: `batch-${i}` })));
+    if (twin) {
+      if (twin.score * 100 >= settings.merge_threshold) {
+        plans.push(null); // same offer twice in one email, drop silently
+        continue;
+      }
+      rec.duplicate_match = { score: twin.score, text_overlap: twin.overlap, signals: twin.signals, same_email: true, matched_vendor: twin.vendor };
+      rec.review_reasons = [`looks like another offer in the same email, ${Math.round(twin.score * 100)}% match`];
+      records.push(rec); plans.push({ type: 'review' }); batch.push(rec);
+      continue;
     }
-  });
 
-  const { data, error } = await supabaseAdmin.from('offers').insert(records).select('id, status, vendor, contact, contact_conflict, duplicate_of, duplicate_match');
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    const match = findDuplicate(rec, library);
+    // Automatic merges only use extractions that passed the hard checks, so a
+    // bad read can never overwrite a good offer that is already live.
+    if (match && holds.length === 0 && match.score * 100 >= settings.merge_threshold) {
+      rec.status = 'rejected';
+      rec.duplicate_of = match.id;
+      rec.duplicate_match = { score: match.score, text_overlap: match.overlap, signals: match.signals, matched_vendor: match.vendor };
+      rec.auto_action = 'merged_auto';
+      records.push(rec); plans.push({ type: 'merge', targetId: match.id, score: match.score }); batch.push(rec);
+      continue;
+    }
+    if (match) {
+      rec.duplicate_of = match.id;
+      rec.duplicate_match = { score: match.score, text_overlap: match.overlap, signals: match.signals, matched_vendor: match.vendor };
+      rec.review_reasons = [`looks like ${match.vendor || 'an offer'} already in the library, ${Math.round(match.score * 100)}% match`];
+      records.push(rec); plans.push({ type: 'review' }); batch.push(rec);
+      continue;
+    }
 
-  // Save vendor memory only when:
-  //  - Offer is published
-  //  - Has a contact
-  //  - Contact is NOT a disallowed internal address (already filtered above, but double-check)
-  //  - No unresolved conflict
-  for (const rec of data) {
+    if (holds.length === 0 && conf.score >= settings.publish_threshold) {
+      rec.status = 'published';
+      rec.auto_action = 'published_auto';
+      records.push(rec); plans.push({ type: 'publish', score: conf.score }); batch.push(rec);
+      continue;
+    }
+
+    rec.review_reasons = [...holds];
+    if (conf.score < settings.publish_threshold) rec.review_reasons.push(`confidence ${conf.score}% is below your ${settings.publish_threshold}% setting`);
+    records.push(rec); plans.push({ type: 'review' }); batch.push(rec);
+  }
+
+  const realPlans = plans.filter(Boolean);
+  let inserted = [];
+  if (records.length) {
+    const { data, error } = await supabaseAdmin.from('offers').insert(records)
+      .select('id, status, vendor, contact, contact_conflict, duplicate_of, confidence, review_reasons');
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    inserted = data;
+  }
+
+  let autoMerged = plans.filter(p => p === null).length;
+  let autoPublished = 0;
+  for (let i = 0; i < inserted.length; i += 1) {
+    const row = inserted[i];
+    const plan = realPlans[i];
+    const rec = records[i];
+    if (plan.type === 'publish') {
+      autoPublished += 1;
+      await logActivity(supabaseAdmin, { action: 'auto_publish', offer_id: row.id, vendor: row.vendor, score: plan.score, details: { subject } });
+    }
+    if (plan.type === 'merge') {
+      const { data: target } = await supabaseAdmin.from('offers').select('*').eq('id', plan.targetId).single();
+      if (!target) {
+        await supabaseAdmin.from('offers').update({ status: 'pending_review', auto_action: null, review_reasons: ['the offer it matched no longer exists'] }).eq('id', row.id);
+        continue;
+      }
+      const update = buildMergeUpdate(target, rec);
+      const { error: mergeError } = await supabaseAdmin.from('offers').update(update).eq('id', target.id);
+      if (mergeError) {
+        await supabaseAdmin.from('offers').update({ status: 'pending_review', auto_action: null, review_reasons: [`automatic merge failed: ${mergeError.message}`] }).eq('id', row.id);
+        continue;
+      }
+      autoMerged += 1;
+      await logActivity(supabaseAdmin, {
+        action: 'auto_merge', offer_id: row.id, target_id: target.id, vendor: row.vendor,
+        score: plan.score * 100, details: { subject, before: snapshot(target) }
+      });
+    }
+  }
+
+  // Vendor memory, as before: only from published offers with no conflict.
+  for (const rec of inserted) {
     if (rec.status === 'published' && rec.contact && rec.vendor && !rec.contact_conflict) {
       if (isDisallowedInternalContact(rec.contact)) continue;
-      // Update the row this vendor already has, under whatever name it was first
-      // saved as. Keying on the incoming spelling is what split the memory in two.
       const existingRow = findVendorContact(rec.vendor, knownContacts);
       const key = existingRow ? existingRow.vendor_normalized : normalizeVendor(rec.vendor);
       if (!key) continue;
@@ -209,53 +324,33 @@ export async function POST(req) {
         contact: rec.contact,
         source_offer_id: rec.id
       }, { onConflict: 'vendor_normalized' });
-      // Keep the local list current so two offers for one vendor in a single
-      // email do not create two rows.
       if (!existingRow) knownContacts.push({ vendor_normalized: key, vendor_display: rec.vendor, contact: rec.contact });
     }
   }
 
-  const needsReview = records.some(r => r.status === 'pending_review');
-  const suspectedDuplicates = records.filter(r => r.duplicate_match).length;
-
-  // One line per held offer, for the "review needed" email Make sends.
-  const held = records
-    .filter(r => r.status === 'pending_review')
-    .map(r => ({ vendor: r.vendor || 'Unnamed offer', reasons: reviewReasons(r, isInternal) }));
+  const held = inserted.filter(r => r.status === 'pending_review');
   const reviewSummaryHtml = held.length
     ? '<ul>' + held.map(h =>
-        `<li><strong>${escapeHtml(h.vendor)}</strong>: ${escapeHtml(h.reasons.join('; ') || 'needs a look')}</li>`
+        `<li><strong>${escapeHtml(h.vendor || 'Unnamed offer')}</strong>: ${escapeHtml((h.review_reasons || []).join('; ') || 'needs a look')}</li>`
       ).join('') + '</ul>'
     : '';
 
-  // Copy the person who forwarded the offer, but only MVT staff. A supplier
-  // writing in directly should not receive an internal review notice.
-  // Always an array so Make can map it straight into the CC field; empty
-  // means no CC.
   const notifyCc = isInternal && sender_email
     ? [{ address: String(sender_email).trim().toLowerCase() }]
     : [];
 
   return NextResponse.json({
     ok: true,
-    inserted: data.length,
-    statuses: data.map(d => d.status),
-    needs_review: needsReview,
-    suspected_duplicates: suspectedDuplicates,
+    inserted: inserted.length,
+    statuses: inserted.map(d => d.status),
+    needs_review: held.length > 0,
+    auto_published: autoPublished,
+    auto_merged: autoMerged,
+    updates_added: updatesAdded,
+    ignored,
+    suspected_duplicates: held.filter(h => h.duplicate_of).length,
+    review_items: held.map(h => ({ id: h.id, vendor: h.vendor, confidence: h.confidence, reasons: h.review_reasons || [] })),
     review_summary_html: reviewSummaryHtml,
     notify_cc: notifyCc
   });
-}
-
-function parseDate(value) {
-  if (!value) return null;
-  const s = String(value).trim();
-  if (!s) return null;
-  const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  const us = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-  if (us) return `${us[3]}-${us[1].padStart(2, '0')}-${us[2].padStart(2, '0')}`;
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-  return null;
 }

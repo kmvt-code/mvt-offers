@@ -472,3 +472,29 @@ a { color: inherit; text-decoration: none; }
 .announce-form label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); margin: 12px 0 6px; }
 .announce-dates { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 @media (max-width: 600px) { .announce-dates { grid-template-columns: 1fr; } }
+
+/* v4: evidence, settings, activity, news */
+.evidence-box { background: var(--cream); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; line-height: 1.5; margin: 10px 0; display: grid; gap: 6px; }
+.evidence-label { color: var(--text-muted); margin-right: 4px; }
+.settings-panel { max-width: 720px; }
+.settings-row { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+.settings-row label { display: block; font-size: 15px; margin-bottom: 10px; }
+.settings-row input[type="range"] { width: 100%; accent-color: var(--navy); }
+.settings-help { font-size: 13px; color: var(--text-muted); line-height: 1.5; margin: 10px 0 0; }
+.settings-preview { font-size: 14px; margin: 10px 0 0; }
+.activity-list { display: grid; gap: 8px; }
+.activity-row { display: flex; align-items: center; gap: 12px; background: white; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+.activity-main { flex: 1; min-width: 0; }
+.activity-title { font-size: 14px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.activity-meta { font-size: 12px; color: var(--text-muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.activity-undone { opacity: 0.55; }
+.estimate-note { font-size: 12px; color: var(--text-muted); font-style: italic; }
+.site-nav { display: flex; gap: 18px; font-size: 14px; }
+.site-nav a { opacity: 0.8; }
+.site-nav a.active, .site-nav a:hover { opacity: 1; text-decoration: underline; text-underline-offset: 4px; }
+.news-list { display: grid; gap: 14px; }
+.news-item { background: white; border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; }
+.news-item h3 { font-family: 'DM Serif Display', serif; font-size: 19px; color: var(--navy); margin: 6px 0 8px; }
+.news-meta { font-size: 12px; color: var(--text-muted); display: flex; gap: 8px; flex-wrap: wrap; text-transform: uppercase; letter-spacing: 0.04em; }
+.news-item p { font-size: 14px; line-height: 1.6; margin: 0; }
+.news-link { display: inline-block; margin-top: 10px; font-size: 13px; text-decoration: underline; }

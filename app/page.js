@@ -10,7 +10,7 @@ export default async function HomePage() {
   const announcementPromise = currentAnnouncement();
   const { data: offers } = await supabasePublic
     .from('offers')
-    .select('id, vendor, supplier_type, audience, offer_overview, offer_start_date, offer_end_date, travel_start_window, travel_end_window, attachment_urls, voyage_list, offer_details, client_facing_content, pinned, tags, updated_at')
+    .select('id, vendor, supplier_type, audience, offer_overview, offer_start_date, offer_end_date, end_date_source, travel_start_window, travel_end_window, attachment_urls, voyage_list, offer_details, client_facing_content, pinned, tags, updated_at')
     .eq('status', 'published')
     .order('pinned', { ascending: false })
     .order('created_at', { ascending: false });
@@ -37,6 +37,10 @@ export default async function HomePage() {
               <div className="site-brand-sub">Montecito Village Travel</div>
             </div>
           </a>
+          <nav className="site-nav">
+            <a href="/" className="active">Offers</a>
+            <a href="/news">Supplier News</a>
+          </nav>
           {lastUpdated && <LastUpdated timestamp={lastUpdated} />}
         </div>
       </header>

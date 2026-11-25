@@ -4,6 +4,7 @@ import { todayInPacific } from '../../lib/dates';
 import { findDuplicate } from '../../lib/duplicates';
 import AdminDashboard from '../../components/AdminDashboard';
 import { isAuthed } from '../../lib/auth';
+import { loadSettings } from '../../lib/settings';
 
 // Cap on how many published rows we load into the list at once.
 // The tab badges are fetched separately as exact counts, so they stay
@@ -54,7 +55,11 @@ export default async function AdminPage({ searchParams }) {
     { count: scheduledTotal },
     { count: expiredTotal },
     { data: vendors },
-    { data: announcementRows }
+    { data: announcementRows },
+    settings,
+    { data: activity },
+    { data: updates },
+    { data: recent }
   ] = await Promise.all([
     withSearch(supabaseAdmin.from('offers').select('*').eq('status', 'pending_review')).order('created_at', { ascending: false }),
     withSearch(supabaseAdmin.from('offers').select('*').eq('status', 'published')).order('pinned', { ascending: false }).order('created_at', { ascending: false }).limit(PUBLISHED_LIST_LIMIT),
@@ -67,7 +72,18 @@ export default async function AdminPage({ searchParams }) {
     supabaseAdmin.from('vendor_contacts').select('*').order('vendor_display', { ascending: true }),
     // The most recent banner, on or off. Fails soft if the table is missing.
     supabaseAdmin.from('announcements').select('*').order('created_at', { ascending: false }).limit(1)
-      .then(r => r, () => ({ data: null }))
+      .then(r => r, () => ({ data: null })),
+    loadSettings(supabaseAdmin),
+    // Tables added in the v4 migration. Fail soft so the page still loads if
+    // the code deploys before the migration has been run.
+    supabaseAdmin.from('activity_log').select('*').order('created_at', { ascending: false }).limit(150)
+      .then(r => r, () => ({ data: [] })),
+    supabaseAdmin.from('supplier_updates').select('*').order('created_at', { ascending: false }).limit(300)
+      .then(r => r, () => ({ data: [] })),
+    // Recent offers that carry a confidence score, for the slider previews.
+    supabaseAdmin.from('offers').select('id, vendor, source, status, confidence, evidence, duplicate_match, offer_overview')
+      .not('confidence', 'is', null).order('created_at', { ascending: false }).limit(100)
+      .then(r => r, () => ({ data: [] }))
   ]);
 
   const publishedList = publishedRows || [];
@@ -116,6 +132,10 @@ export default async function AdminPage({ searchParams }) {
       expiredTotal={expiredTotal}
       vendors={vendors || []}
       announcement={(announcementRows && announcementRows[0]) || null}
+      settings={settings}
+      activity={activity || []}
+      updates={updates || []}
+      recent={recent || []}
     />
   );
 }
